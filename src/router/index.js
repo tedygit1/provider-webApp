@@ -47,6 +47,8 @@ const routes = [
   // 🌐 Public Pages (with MainLayout)
   // --------------------------------------
   {
+
+  
     path: "/",
     component: MainLayout,
     children: [
@@ -54,10 +56,13 @@ const routes = [
       { path: "about", name: "About", component: About },
       { path: "contact", name: "Contact", component: Contact },
       { path: "how-it-works", name: "HowItWorks", component: HowItWorks },
-      { path: "providers", name: "Providers", component: ProvidersPage },
+      { path: "Providers", name: "Providers", component: ProvidersPage },
       { path: "login", name: "Login", component: Login },
       { path: "register", name: "Register", component: Register },
       { path: "forgot-password", name: "ForgotPassword", component: ForgotPassword },
+       { path: "/reset-password/:token",
+  component: () => import("@/pages/auth/ResetPassword.vue")
+},
 
       // Footer pages
       { path: "help-center", name: "HelpCenter", component: HelpCenter },

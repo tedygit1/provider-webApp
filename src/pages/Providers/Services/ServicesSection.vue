@@ -1,6 +1,5 @@
 <template>
   <div class="services-section">
-
     <!-- Header -->
     <div class="header-row">
       <div>
@@ -8,7 +7,7 @@
         <p class="subtitle">Manage and showcase the services you offer to customers.</p>
       </div>
       <div class="header-actions">
-        <button class="btn primary" @click="toggleForm">
+        <button class="btn primary" @click="openCreateService">
           <i class="fa-solid fa-plus"></i> {{ showForm ? 'Close Form' : 'Add Service' }}
         </button>
       </div>
@@ -40,8 +39,17 @@
       <div class="empty-card">
         <i class="fa-solid fa-briefcase"></i>
         <h3>No services yet</h3>
-        <p>Create your first service so customers can find and book you.</p>
-        <button class="btn primary" @click="showForm = true">
+        <p>
+          Your account is <strong>{{ providerStatus }}</strong>.
+          <template v-if="isProviderConfirmed">
+            Create your first service so customers can find and book you.
+          </template>
+          <template v-else>
+            You can create services now—they’ll become visible to customers once your account is approved.
+          </template>
+        </p>
+        <!-- Always show the button -->
+        <button class="btn primary" @click="openCreateService">
           <i class="fa-solid fa-plus"></i> Create Service
         </button>
       </div>
@@ -53,7 +61,6 @@
       :service="selectedService"
       @close="showBooking = false"
     />
-
   </div>
 </template>
 
@@ -72,44 +79,63 @@ export default {
       editingService: null,
       showBooking: false,
       selectedService: null,
-      providerId: null, // ✅ Start as null
-      services: []
+      services: [],
+      providerStatus: "pending",
     }
   },
 
-  methods: {
-    async fetchServices() {
-      const id = localStorage.getItem("provider_id");
-      if (!id) {
-        console.warn("No provider_id in localStorage. Redirecting to login...");
-        this.$router.push("/login");
-        return;
-      }
-      this.providerId = id; // ✅ Always refresh from localStorage
+  computed: {
+    isProviderConfirmed() {
+      return this.providerStatus === "confirmed";
+    }
+  },
 
+  async mounted() {
+    await this.checkProviderStatus();
+    // ✅ ALWAYS fetch services — even if unconfirmed
+    await this.fetchServices();
+  },
+
+  methods: {
+    async checkProviderStatus() {
       try {
-        const res = await http.get(`/services/provider/${this.providerId}`);
-        this.services = Array.isArray(res.data) ? res.data : [];
+        const res = await http.get("/users/providers/status");
+        this.providerStatus = res.data?.status || "pending";
       } catch (err) {
-        console.error("Error fetching services:", err);
-        alert("Failed to load services. Please log in again.");
-        this.$router.push("/login");
+        console.warn("Status check failed — defaulting to 'pending'");
+        this.providerStatus = "pending";
       }
     },
 
-    toggleForm() {
-      this.showForm = !this.showForm;
+    async fetchServices() {
+      try {
+        const loggedProvider = JSON.parse(localStorage.getItem("loggedProvider") || "{}");
+        const providerId = loggedProvider._id;
+
+        if (!providerId) {
+          console.warn("No provider ID found; skipping service fetch");
+          this.services = [];
+          return;
+        }
+
+        const res = await http.get(`/services/provider/${providerId}`);
+        this.services = Array.isArray(res.data) ? res.data : [];
+      } catch (err) {
+        console.error("Fetch services failed:", err);
+        this.services = []; // Don’t log out – just show empty
+      }
+    },
+
+    // ✅ Allow form for all
+    openCreateService() {
+      this.showForm = true;
       this.editingService = null;
     },
 
-    handleSave(savedService) {
-      const idx = this.services.findIndex(s => s._id === savedService._id);
-      if (idx !== -1) {
-        this.services.splice(idx, 1, savedService);
-      } else {
-        this.services.unshift(savedService);
-      }
+    async handleSave(savedService) {
       this.closeForm();
+      // ✅ Critical: refresh list so new service appears immediately
+      await this.fetchServices();
     },
 
     closeForm() {
@@ -119,17 +145,17 @@ export default {
 
     editService(service) {
       this.editingService = { ...service };
-      this.showForm = true;
+      this.openCreateService();
     },
 
     async deleteService(id) {
       if (!confirm("Are you sure you want to delete this service?")) return;
       try {
         await http.delete(`/services/${id}`);
-        this.services = this.services.filter(s => s._id !== id);
+        await this.fetchServices();
       } catch (err) {
         console.error("Delete failed:", err);
-        alert("Could not delete service. Please try again.");
+        alert("Could not delete service.");
       }
     },
 
@@ -137,10 +163,6 @@ export default {
       this.selectedService = service;
       this.showBooking = true;
     }
-  },
-
-  mounted() {
-    this.fetchServices(); // ✅ Now fetches fresh provider_id
   }
 }
 </script>
