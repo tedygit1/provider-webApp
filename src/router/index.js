@@ -12,7 +12,7 @@ import HowItWorks from "@/pages/HowItWorks.vue";
 import ProvidersPage from "@/pages/Providers.vue";
 
 // Auth pages
-import Login from "@/pages/Auth/Login.vue";       // ✅ Match folder case: Auth (capital A)
+import Login from "@/pages/Auth/Login.vue";
 import Register from "@/pages/Auth/Register.vue";
 import ForgotPassword from "@/pages/Auth/ForgotPassword.vue";
 import AuthTest from "@/pages/AuthTest.vue";
@@ -47,7 +47,7 @@ const routes = [
       { path: "about", name: "About", component: About },
       { path: "contact", name: "Contact", component: Contact },
       { path: "how-it-works", name: "HowItWorks", component: HowItWorks },
-      { path: "providers", name: "Providers", component: ProvidersPage }, // ✅ lowercase
+      { path: "providers", name: "Providers", component: ProvidersPage },
       { path: "login", name: "Login", component: Login },
       { path: "register", name: "Register", component: Register },
       { path: "forgot-password", name: "ForgotPassword", component: ForgotPassword },
@@ -71,7 +71,14 @@ const routes = [
       { path: "home", name: "ProviderHome", component: HomeDashboard },
       { path: "profile", name: "ProviderProfile", component: ProfileSection },
       { path: "services", name: "ProviderServices", component: ServicesSection },
-      { path: "services/:id", name: "ServiceDetails", component: () => import("@/pages/Providers/Services/ServiceDetails.vue") }, // ✅ ADDED
+      { path: "services/:id", name: "ServiceDetails", component: () => import("@/pages/Providers/Services/ServiceDetails.vue") },
+      // ✅ CAREFULLY ADDED: TimeSlots route - placed right after ServiceDetails for logical grouping
+      { 
+        path: "services/:id/time-slots", 
+        name: "TimeSlots", 
+        component: () => import("@/pages/Providers/Services/TimeSlots.vue"),
+        props: true 
+      },
       { path: "bookings", name: "ProviderBookings", component: BookingsSection },
       { path: "earnings", name: "ProviderEarnings", component: EarningsSection },
       { path: "messages", name: "ProviderMessages", component: MessagesSection },

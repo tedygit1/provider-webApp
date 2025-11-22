@@ -4,7 +4,7 @@
     <div class="service-form">
       <div class="form-header">
         <h2 class="form-title">{{ isEdit ? "Edit Service" : "Add New Service" }}</h2>
-        <p class="form-subtitle">Fill in the details to list your professional service</p>
+        <p class="form-subtitle">Fill in the basic details - you'll add time slots later</p>
       </div>
 
       <!-- CATEGORY -->
@@ -29,7 +29,7 @@
       <div v-if="local.categoryId && subcategories.length" class="form-row">
         <label>Subcategory</label>
         <select v-model="local.subcategoryId">
-          <option disabled value="">subcategory</option>
+          <option disabled value="">Choose subcategory</option>
           <option v-for="sub in subcategories" :key="sub._id" :value="sub._id">
             {{ sub.name }}
           </option>
@@ -128,8 +128,8 @@
         </select>
       </div>
 
-      <!-- STATUS -->
-      <div class="form-row">
+      <!-- STATUS - ALWAYS DRAFT FOR NEW SERVICES -->
+      <div class="form-row" v-if="isEdit">
         <label>Listing Status</label>
         <div class="status-options" role="radiogroup" aria-label="Service status">
           <label class="status-option">
@@ -148,95 +148,13 @@
             />
             <span class="status-label draft">Draft</span>
           </label>
-          <label class="status-option">
-            <input 
-              type="radio" 
-              value="pending" 
-              v-model="local.status" 
-            />
-            <span class="status-label pending">Pending Review</span>
-          </label>
         </div>
       </div>
 
-      <!-- PROFESSIONAL AVAILABILITY -->
-      <div class="form-row">
-        <label>Weekly Availability <span class="required">*</span></label>
-        <div class="week-schedule">
-          <div 
-            v-for="(dayConfig, dayKey) in daysOfWeek" 
-            :key="dayKey"
-            class="day-row"
-            :class="{ 'disabled': !local.availability[dayKey].active }"
-          >
-            <div class="day-header">
-              <label class="day-toggle" :for="`toggle-${dayKey}`">
-                <input 
-                  :id="`toggle-${dayKey}`"
-                  type="checkbox" 
-                  :checked="local.availability[dayKey].active"
-                  @change="toggleDay(dayKey)"
-                  class="sr-only"
-                />
-                <span class="day-checkmark" :class="{ active: local.availability[dayKey].active }">
-                  {{ local.availability[dayKey].active ? '✅' : '–' }}
-                </span>
-                <span>{{ dayConfig.label }}</span>
-              </label>
-            </div>
-            <div class="day-slots" v-if="local.availability[dayKey].active">
-              <div 
-                v-for="(slot, idx) in local.availability[dayKey].slots" 
-                :key="idx"
-                class="time-slot-row"
-              >
-                <input 
-                  type="time" 
-                  v-model="slot.start"
-                  class="time-input"
-                  step="900"
-                  @change="validateSlot(dayKey, idx)"
-                  min="00:00"
-                  max="23:45"
-                />
-                <span class="time-separator">–</span>
-                <input 
-                  type="time" 
-                  v-model="slot.end"
-                  class="time-input"
-                  step="900"
-                  @change="validateSlot(dayKey, idx)"
-                  min="00:15"
-                  max="23:59"
-                />
-                <button 
-                  class="btn remove-slot-btn" 
-                  @click="removeTimeSlot(dayKey, idx)"
-                  :disabled="local.availability[dayKey].slots.length === 1"
-                  aria-label="Remove time slot"
-                >
-                  <i class="fa-solid fa-trash-can"></i>
-                </button>
-              </div>
-              <button 
-                class="add-slot-link" 
-                @click="addTimeSlot(dayKey)"
-                type="button"
-              >
-                + Add another time block
-              </button>
-              <div v-if="getDayErrors(dayKey)" class="day-error-message">
-                {{ getDayErrors(dayKey) }}
-              </div>
-            </div>
-            <div v-else class="day-disabled-hint">
-              Not available on {{ dayConfig.label }}
-            </div>
-          </div>
-        </div>
-        <div v-if="!hasAnyActiveDay && showError" class="error-message">
-          Please enable at least one day and add valid working hours
-        </div>
+      <!-- INFO MESSAGE FOR NEW SERVICES -->
+      <div v-if="!isEdit" class="info-message">
+        <i class="fa-solid fa-info-circle"></i>
+        <p><strong>Next step:</strong> After saving, you'll add time slots to make your service available for booking.</p>
       </div>
 
       <!-- ACTIONS -->
@@ -253,7 +171,7 @@
             <i class="fa-solid fa-spinner fa-spin"></i> Saving...
           </span>
           <span v-else>
-            <i class="fa-solid fa-check"></i> {{ isEdit ? "Update Service" : "Publish Service" }}
+            <i class="fa-solid fa-check"></i> {{ isEdit ? "Update Service" : "Save as Draft" }}
           </span>
         </button>
       </div>
@@ -279,43 +197,22 @@ export default {
         totalPrice: 0,
         bookingPrice: 0,
         priceUnit: "ETB",
-        status: "published",
+        status: "draft", // ✅ ALWAYS DRAFT FOR NEW SERVICES
         paymentMethod: "",
-        slots: [],
-        availability: {
-          monday: { active: true, slots: [{ start: "09:00", end: "12:00" }, { start: "13:00", end: "17:00" }] },
-          tuesday: { active: true, slots: [{ start: "09:00", end: "17:00" }] },
-          wednesday: { active: true, slots: [{ start: "09:00", end: "12:00" }, { start: "13:00", end: "17:00" }] },
-          thursday: { active: false, slots: [] },
-          friday: { active: true, slots: [{ start: "09:00", end: "17:00" }] },
-          saturday: { active: true, slots: [{ start: "10:00", end: "14:00" }] },
-          sunday: { active: false, slots: [] }
-        }
+        slots: [] // ✅ EMPTY SLOTS - WILL BE ADDED LATER
       },
       previewImage: null,
       categories: [],
       subcategories: [],
       paymentMethods: ["Telebirr", "CBE Birr", "Cash"],
       showError: false,
-      isSaving: false,
-      daysOfWeek: {
-        monday: { label: "Monday" },
-        tuesday: { label: "Tuesday" },
-        wednesday: { label: "Wednesday" },
-        thursday: { label: "Thursday" },
-        friday: { label: "Friday" },
-        saturday: { label: "Saturday" },
-        sunday: { label: "Sunday" }
-      }
+      isSaving: false
     };
   },
 
   computed: {
     isEdit() {
       return !!(this.service && this.service._id);
-    },
-    hasAnyActiveDay() {
-      return Object.values(this.local.availability).some(day => day.active);
     }
   },
 
@@ -333,10 +230,9 @@ export default {
             totalPrice: val.totalPrice || 0,
             bookingPrice: val.bookingPrice || 0,
             priceUnit: "ETB",
-            status: val.status || "published",
+            status: val.status || "draft",
             paymentMethod: val.paymentMethod || "",
             slots: Array.isArray(val.slots) ? [...val.slots] : [],
-            availability: val.availability || this.getDefaultAvailability(val.slots),
             bannerFile: null
           };
           this.previewImage = val.banner || "";
@@ -410,254 +306,127 @@ export default {
       this.$refs.fileInput.value = '';
     },
 
-    // ✅ FIXED: Convert backend slots to form availability correctly
-    getDefaultAvailability(slots = []) {
-      const availability = {};
-      Object.keys(this.daysOfWeek).forEach(dayKey => {
-        availability[dayKey] = { active: false, slots: [] };
-      });
-      
-      if (slots.length > 0) {
-        // ✅ FIXED: Convert backend slots to form availability correctly
-        slots.forEach(slot => {
-          const dayName = slot.slotLabel?.split(' ')[0]?.toLowerCase(); // "Monday Schedule" -> "monday"
-          if (dayName && availability[dayName] && slot.weeklySchedule) {
-            availability[dayName].active = true;
-            availability[dayName].slots = slot.weeklySchedule.map(schedule => ({
-              start: schedule.startTime || "09:00",
-              end: schedule.endTime || "17:00"
-            }));
-          }
-        });
-      } else {
-        // Default availability
-        availability.monday = { active: true, slots: [{ start: "09:00", end: "17:00" }] };
-      }
-      
-      return availability;
-    },
-
-    toggleDay(dayKey) {
-      this.local.availability[dayKey].active = !this.local.availability[dayKey].active;
-      if (!this.local.availability[dayKey].active) {
-        this.local.availability[dayKey].slots = [];
-      } else if (this.local.availability[dayKey].slots.length === 0) {
-        this.local.availability[dayKey].slots.push({ start: "09:00", end: "17:00" });
-      }
-    },
-
-    addTimeSlot(dayKey) {
-      this.local.availability[dayKey].slots.push({ start: "09:00", end: "17:00" });
-    },
-
-    removeTimeSlot(dayKey, index) {
-      if (this.local.availability[dayKey].slots.length <= 1) {
-        this.local.availability[dayKey].active = false;
-        this.local.availability[dayKey].slots = [];
-      } else {
-        this.local.availability[dayKey].slots.splice(index, 1);
-      }
-    },
-
-    validateSlot(dayKey, index) {
-      const slot = this.local.availability[dayKey].slots[index];
-      if (!slot.start || !slot.end) return;
-
-      if (slot.start >= slot.end) {
-        const [h, m] = slot.start.split(':').map(Number);
-        const newEnd = new Date();
-        newEnd.setHours(h, m + 60);
-        slot.end = newEnd.toTimeString().slice(0, 5);
-      }
-
-      this.sortAndDedupSlots(dayKey);
-    },
-
-    sortAndDedupSlots(dayKey) {
-      const slots = this.local.availability[dayKey].slots;
-      slots.sort((a, b) => a.start.localeCompare(b.start));
-    },
-
-    getDayErrors(dayKey) {
-      const day = this.local.availability[dayKey];
-      if (!day.active) return null;
-
-      for (let i = 0; i < day.slots.length; i++) {
-        const s = day.slots[i];
-        if (!s.start || !s.end) return "Time range is incomplete";
-        if (s.start >= s.end) return "Start time must be before end time";
-      }
-      return null;
-    },
-
     validateForm() {
       this.showError = true;
       if (!this.local.title?.trim()) return false;
       if (!this.local.categoryId) return false;
       if (!this.local.description?.trim()) return false;
       if (this.local.totalPrice <= 0) return false;
-      if (!this.hasAnyActiveDay) return false;
-
-      for (const dayKey of Object.keys(this.local.availability)) {
-        if (this.local.availability[dayKey].active) {
-          if (this.getDayErrors(dayKey)) return false;
-        }
-      }
       return true;
     },
 
-    // ✅ FIXED: Convert availability to proper DAY-based slots structure
-    convertAvailabilityToSlots() {
-      const slots = [];
-      const daysMap = {
-        monday: 'Monday',
-        tuesday: 'Tuesday', 
-        wednesday: 'Wednesday',
-        thursday: 'Thursday',
-        friday: 'Friday',
-        saturday: 'Saturday',
-        sunday: 'Sunday'
-      };
+ async saveService() {
+  if (!this.validateForm()) {
+    alert("❌ Please fill in all required fields correctly.");
+    return;
+  }
 
-      // Create ONE slot per day (not date-based)
-      Object.keys(daysMap).forEach(dayKey => {
-        const dayAvailability = this.local.availability[dayKey];
-        const dayName = daysMap[dayKey];
-        
-        if (dayAvailability && dayAvailability.active && dayAvailability.slots.length > 0) {
-          slots.push({
-            // ✅ FIXED: Use day-based structure, not date-based
-            slotLabel: `${dayName} Schedule`,
-            isActive: true,
-            isBooked: false,
-            weeklySchedule: dayAvailability.slots.map(slot => ({
-              startTime: slot.start,
-              endTime: slot.end
-            }))
-          });
+  this.isSaving = true;
+
+  try {
+    // Get provider ID
+    let providerId = null;
+    try {
+      const loggedProvider = JSON.parse(localStorage.getItem("loggedProvider") || "{}");
+      providerId = loggedProvider._id;
+    } catch (e) {
+      console.warn("Malformed loggedProvider");
+    }
+    if (!providerId) {
+      providerId = localStorage.getItem("provider_id");
+    }
+    if (!providerId) {
+      throw new Error("Provider not authenticated.");
+    }
+
+    // Get category name
+    const selectedCategory = this.categories.find(cat => cat._id === this.local.categoryId);
+    if (!selectedCategory) {
+      throw new Error("Please select a valid category.");
+    }
+    const categoryName = selectedCategory.name;
+
+    // ✅ CRITICAL: For NEW services, DO NOT send slots at all
+    // For EDIT services, preserve existing slots
+    const serviceData = {
+      title: this.local.title.trim(),
+      description: this.local.description.trim(),
+      totalPrice: this.local.totalPrice,
+      bookingPrice: this.local.bookingPrice,
+      priceUnit: "ETB",
+      status: "draft", // ✅ Always draft for new services
+      provider: providerId,
+      category: categoryName,
+      paymentMethod: this.local.paymentMethod || "Telebirr",
+      subcategoryId: this.local.subcategoryId
+    };
+
+    // ✅ Only include slots for EDIT mode (preserve existing)
+    if (this.isEdit) {
+      serviceData.slots = Array.isArray(this.local.slots) ? this.local.slots : [];
+    }
+    // ✅ For NEW services, NO slots field = truly blank
+
+    // Handle banner upload
+    if (this.local.bannerFile) {
+      const formData = new FormData();
+      
+      // Append all service data
+      Object.keys(serviceData).forEach(key => {
+        if (serviceData[key] !== null && serviceData[key] !== undefined) {
+          formData.append(key, serviceData[key]);
         }
       });
+      
+      // Append the file
+      formData.append('banner', this.local.bannerFile);
 
-      console.log("✅ Converted DAY-based slots for backend:", slots);
-      return slots;
-    },
-
-    // ✅ FIXED: Save service with proper slots structure
-    async saveService() {
-      if (!this.validateForm()) {
-        alert("❌ Please fill in all required fields correctly.");
-        return;
+      const url = this.isEdit ? `/services/${this.local._id}` : "/services";
+      const config = {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      };
+      
+      const response = this.isEdit
+        ? await http.put(url, formData, config)
+        : await http.post(url, formData, config);
+      
+      console.log("✅ Service saved:", response.data);
+      this.$emit("save", response.data);
+      
+    } else {
+      // No file upload - use regular JSON
+      if (!this.isEdit) {
+        // For new services, explicitly set banner to empty string
+        serviceData.banner = "";
       }
 
-      this.isSaving = true;
-
-      try {
-        // Get provider ID
-        let providerId = null;
-        try {
-          const loggedProvider = JSON.parse(localStorage.getItem("loggedProvider") || "{}");
-          providerId = loggedProvider._id;
-        } catch (e) {
-          console.warn("Malformed loggedProvider");
-        }
-        if (!providerId) {
-          providerId = localStorage.getItem("provider_id");
-        }
-        if (!providerId) {
-          throw new Error("Provider not authenticated.");
-        }
-
-        // Get category name
-        const selectedCategory = this.categories.find(cat => cat._id === this.local.categoryId);
-        if (!selectedCategory) {
-          throw new Error("Please select a valid category.");
-        }
-        const categoryName = selectedCategory.name;
-
-        // ✅ FIX: Convert availability to proper slots structure
-        const slots = this.convertAvailabilityToSlots();
-
-        // ✅ FIX: Handle banner properly
-        if (this.local.bannerFile) {
-          const formData = new FormData();
-          
-          // Append all service data
-          formData.append('title', this.local.title.trim());
-          formData.append('description', this.local.description.trim());
-          formData.append('totalPrice', this.local.totalPrice.toString());
-          formData.append('bookingPrice', this.local.bookingPrice.toString());
-          formData.append('priceUnit', 'ETB');
-          formData.append('status', this.local.status);
-          formData.append('provider', providerId);
-          formData.append('category', categoryName);
-          formData.append('paymentMethod', this.local.paymentMethod || 'Telebirr');
-          formData.append('subcategoryId', this.local.subcategoryId);
-          
-          // ✅ FIX: Send proper slots structure
-          formData.append('slots', JSON.stringify(slots));
-          formData.append('availability', JSON.stringify(this.local.availability));
-          
-          // Append the file
-          formData.append('banner', this.local.bannerFile);
-
-          const url = this.isEdit ? `/services/${this.local._id}` : "/services";
-          const config = {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          };
-          
-          const response = this.isEdit
-            ? await http.put(url, formData, config)
-            : await http.post(url, formData, config);
-          
-          console.log("✅ Service saved with image:", response.data);
-          this.$emit("save", response.data);
-          alert(`✅ ${this.isEdit ? "Service updated!" : "Service created!"}`);
-        } else {
-          // No file upload - use regular JSON
-          const payloadData = {
-            title: this.local.title.trim(),
-            description: this.local.description.trim(),
-            totalPrice: this.local.totalPrice,
-            bookingPrice: this.local.bookingPrice,
-            priceUnit: "ETB",
-            status: this.local.status,
-            provider: providerId,
-            category: categoryName,
-            banner: this.previewImage || "",
-            paymentMethod: this.local.paymentMethod || "Telebirr",
-            subcategoryId: this.local.subcategoryId,
-            
-            // ✅ FIX: Send proper slots structure
-            slots: slots,
-            availability: this.local.availability
-          };
-
-          const url = this.isEdit ? `/services/${this.local._id}` : "/services";
-          const response = this.isEdit
-            ? await http.put(url, payloadData)
-            : await http.post(url, payloadData);
-          
-          console.log("✅ Service saved without image:", response.data);
-          this.$emit("save", response.data);
-          alert(`✅ ${this.isEdit ? "Service updated!" : "Service created!"}`);
-        }
-
-      } catch (err) {
-        const errorMsg = err.response?.data?.message || err.message || "Failed to save service";
-        console.error("Save error:", err);
-        alert(`❌ ${errorMsg}`);
-      } finally {
-        this.isSaving = false;
-      }
+      const url = this.isEdit ? `/services/${this.local._id}` : "/services";
+      const response = this.isEdit
+        ? await http.put(url, serviceData)
+        : await http.post(url, serviceData);
+      
+      console.log("✅ Service saved:", response.data);
+      this.$emit("save", response.data);
     }
+
+    alert(`✅ ${this.isEdit ? "Service updated!" : "Service created as draft! Add time slots to make it available."}`);
+
+  } catch (err) {
+    const errorMsg = err.response?.data?.message || err.message || "Failed to save service";
+    console.error("Save error:", err);
+    alert(`❌ ${errorMsg}`);
+  } finally {
+    this.isSaving = false;
+  }
+}
   }
 };
 </script>
 
 <style scoped>
-/* ===== YOUR ORIGINAL STYLES + ENHANCEMENTS ===== */
+/* ===== KEEP ALL YOUR ORIGINAL STYLES ===== */
 .service-form-container {
   display: flex;
   justify-content: center;
@@ -881,11 +650,6 @@ input:focus, select:focus, textarea:focus {
   color: #1d4ed8;
 }
 
-.status-label.pending {
-  background: #ffedd5;
-  color: #c2410c;
-}
-
 .status-option input:checked + .status-label.published {
   background: #16a34a;
   color: white;
@@ -896,124 +660,29 @@ input:focus, select:focus, textarea:focus {
   color: white;
 }
 
-.status-option input:checked + .status-label.pending {
-  background: #f97316;
-  color: white;
-}
-
-/* PROFESSIONAL TIME SLOT STYLES */
-.week-schedule {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.day-row {
-  display: flex;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
+/* Info Message */
+.info-message {
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
   padding: 16px;
-  transition: all 0.2s;
-}
-
-.day-row.disabled {
-  background: #f8fafc;
-  opacity: 0.6;
-}
-
-.day-header {
-  width: 120px;
+  margin: 20px 0;
   display: flex;
-  align-items: center;
-}
-
-.day-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  color: #334155;
-  cursor: pointer;
-}
-
-.day-checkmark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: #f1f5f9;
-  font-weight: bold;
-  transition: all 0.2s;
-}
-
-.day-checkmark.active {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.day-slots {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
 }
 
-.time-slot-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.info-message i {
+  color: #1d4ed8;
+  font-size: 1.2rem;
+  margin-top: 2px;
 }
 
-.time-input {
-  width: 120px;
-  padding: 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  font-size: 1rem;
-}
-
-.time-separator {
-  font-weight: 600;
-  color: #64748b;
-}
-
-.add-slot-link {
-  background: none;
-  border: none;
-  color: #22c55e;
+.info-message p {
+  color: #1e40af;
+  margin: 0;
   font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 4px 0;
-  text-align: left;
-  width: fit-content;
-  margin-top: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.add-slot-link:hover {
-  color: #16a34a;
-  text-decoration: underline;
-}
-
-.day-disabled-hint {
-  color: #94a3b8;
-  font-style: italic;
-  padding: 12px 0 12px 18px;
-}
-
-.day-error-message {
-  color: #ef4444;
-  font-size: 0.875rem;
-  margin-top: 8px;
-  padding: 6px 12px;
-  background: #fef2f2;
-  border-radius: 8px;
-  display: inline-block;
+  line-height: 1.4;
 }
 
 /* Actions */
@@ -1071,19 +740,6 @@ input:focus, select:focus, textarea:focus {
   transform: none;
 }
 
-/* Accessibility */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 /* ===== RESPONSIVE DESIGN ===== */
 @media (max-width: 768px) {
   .service-form {
@@ -1119,14 +775,6 @@ input:focus, select:focus, textarea:focus {
     padding: 16px;
     font-size: 1.05rem;
   }
-
-  .day-header {
-    width: 100px;
-  }
-
-  .time-input {
-    width: 100px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -1145,14 +793,6 @@ input:focus, select:focus, textarea:focus {
 
   input, select, textarea {
     padding: 18px;
-  }
-
-  .day-header {
-    width: 90px;
-  }
-
-  .time-input {
-    width: 90px;
   }
 }
 </style>

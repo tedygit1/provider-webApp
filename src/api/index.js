@@ -15,7 +15,7 @@ const getBaseURL = () => {
 
 const http = axios.create({
   baseURL: getBaseURL(),
-  timeout: 15000, // Increased timeout
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -72,4 +72,8 @@ http.interceptors.response.use(
   }
 );
 
+// ✅ SIMPLE EXPORT - NO COMPLEX MODULES!
+// Your components will continue using:
+// import http from "@/api/index.js";
+// http.post("/services/123/slots", data)
 export default http;

@@ -35,7 +35,7 @@
               v-for="(item, key) in menuItems"
               :key="key"
               @click="goTo(key)"
-              :class="{ active: activeTab === key }"
+              :class="{ active: isActiveRoute(key) }"
             >
               <i :class="item.icon"></i>
               <span>{{ item.label }}</span>
@@ -57,118 +57,139 @@
 
     <!-- Main Content -->
     <main class="dashboard-main">
-      <!-- Fallback content to prevent blank screen -->
-      <div v-if="!currentView" class="fallback-content">
-        <h2>🏡 Dashboard Loaded!</h2>
-        <p>Select a tab from the menu.</p>
-      </div>
-      <component
-        :is="currentView"
-        :provider="provider"
+      <!-- Use router-view for proper routing -->
+      <router-view 
+        :provider="provider" 
         @profileUpdated="handleProfileUpdated"
-        v-else
       />
+      
+      <!-- Fallback for when no route matches -->
+      <div v-if="!$route.name" class="fallback-content">
+        <h2>🏡 Dashboard Loaded!</h2>
+        <p>Select a tab from the menu or use router navigation.</p>
+        <p style="color: #666; font-size: 0.9rem; margin-top: 10px;">
+          Current Route: {{ $route.path }}
+        </p>
+      </div>
     </main>
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted } from "vue";
-import { useRouter } from "vue-router";
+<script>
+import { ref, computed, onMounted, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import http from "@/api/index.js";
 
-// Components
-import HomeDashboard from "./HomeDashboard.vue";
-import ProfileSection from "./ProfileSection.vue";
-import ServicesSection from "./Services/ServicesSection.vue";
-import BookingsSection from "./BookingsSection.vue";
-import EarningsSection from "./EarningsSection.vue";
-import MessagesSection from "./MessagesSection.vue";
-import AnalyticsSection from "./AnalyticsSection.vue";
-import ReviewsSection from "./ReviewsSection.vue";
-import SettingsSection from "./SettingsSection.vue";
+export default {
+  name: 'Dashboard',
+  setup() {
+    const router = useRouter();
+    const route = useRoute();
+    
+    const loggingOut = ref(false);
+    const provider = ref(null);
+    const sidebarOpen = ref(false);
 
-const router = useRouter();
-const activeTab = ref("home");
-const loggingOut = ref(false);
-const provider = ref(null);
-const sidebarOpen = ref(false);
+    // Menu items with route names
+    const menuItems = {
+      home: { label: "Home", icon: "fa-solid fa-house", route: "ProviderHome" },
+      profile: { label: "My Profile", icon: "fa-solid fa-user", route: "ProviderProfile" },
+      services: { label: "My Services", icon: "fa-solid fa-briefcase", route: "ProviderServices" },
+      bookings: { label: "Bookings", icon: "fa-solid fa-calendar-check", route: "ProviderBookings" },
+      earnings: { label: "Earnings", icon: "fa-solid fa-wallet", route: "ProviderEarnings" },
+      messages: { label: "Messages", icon: "fa-solid fa-envelope", route: "ProviderMessages" },
+      analytics: { label: "Analytics", icon: "fa-solid fa-chart-line", route: "ProviderAnalytics" },
+      reviews: { label: "Reviews", icon: "fa-solid fa-star", route: "ProviderReviews" },
+      settings: { label: "Settings", icon: "fa-solid fa-gear", route: "ProviderSettings" },
+    };
 
-const menuItems = {
-  home: { label: "Home", icon: "fa-solid fa-house" },
-  profile: { label: "My Profile", icon: "fa-solid fa-user" },
-  services: { label: "My Services", icon: "fa-solid fa-briefcase" },
-  bookings: { label: "Bookings", icon: "fa-solid fa-calendar-check" },
-  earnings: { label: "Earnings", icon: "fa-solid fa-wallet" },
-  messages: { label: "Messages", icon: "fa-solid fa-envelope" },
-  analytics: { label: "Analytics", icon: "fa-solid fa-chart-line" },
-  reviews: { label: "Reviews", icon: "fa-solid fa-star" },
-  settings: { label: "Settings", icon: "fa-solid fa-gear" },
-};
+    // Check if current route matches menu item
+    const isActiveRoute = (menuKey) => {
+      const menuRoute = menuItems[menuKey]?.route;
+      if (!menuRoute) return false;
+      
+      // Special case for home route
+      if (menuRoute === "ProviderHome" && route.name === "ProviderHome") return true;
+      
+      // Check if current route starts with the menu route pattern
+      return route.name?.includes(menuRoute.replace('Provider', '')) || 
+             route.name === menuRoute;
+    };
 
-const viewMap = {
-  home: HomeDashboard,
-  profile: ProfileSection,
-  services: ServicesSection,
-  bookings: BookingsSection,
-  earnings: EarningsSection,
-  messages: MessagesSection,
-  analytics: AnalyticsSection,
-  reviews: ReviewsSection,
-  settings: SettingsSection,
-};
+    // Use router navigation instead of tab switching
+    const goTo = (menuKey) => {
+      const targetRoute = menuItems[menuKey]?.route;
+      if (targetRoute) {
+        console.log(`🔄 Navigating to: ${targetRoute}`);
+        router.push({ name: targetRoute });
+      }
+      sidebarOpen.value = false;
+    };
 
-const currentView = computed(() => viewMap[activeTab.value]);
+    const toggleSidebar = () => {
+      sidebarOpen.value = !sidebarOpen.value;
+    };
 
-function goTo(tab) {
-  activeTab.value = tab;
-  sidebarOpen.value = false;
-}
+    const logout = async () => {
+      loggingOut.value = true;
+      localStorage.clear();
+      await router.push({ name: "Login" });
+      loggingOut.value = false;
+    };
 
-function toggleSidebar() {
-  sidebarOpen.value = !sidebarOpen.value;
-}
+    // Force fresh profile fetch (bypass 304 cache)
+    const fetchProvider = async () => {
+      const token = localStorage.getItem("provider_token");
+      if (!token) return router.push({ name: "Login" });
 
-async function logout() {
-  loggingOut.value = true;
-  localStorage.clear();
-  await router.push({ name: "Login" });
-  loggingOut.value = false;
-}
+      try {
+        const res = await http.get("/users/profile", {
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        });
+        
+        console.log("✅ Fresh profile data:", res.data);
+        
+        provider.value = res.data;
+        if (res.data._id) {
+          localStorage.setItem("provider_id", res.data._id);
+        }
+      } catch (err) {
+        console.error("Profile load failed:", err.response?.data || err.message);
+        localStorage.clear();
+        router.push({ name: "Login" });
+      }
+    };
 
-// ✅ FIXED: Force fresh profile fetch (bypass 304 cache)
-async function fetchProvider() {
-  const token = localStorage.getItem("provider_token");
-  if (!token) return router.push({ name: "Login" });
-
-  try {
-    const res = await http.get("/users/profile", {
-      headers: {
-        "Cache-Control": "no-cache", // 👈 Bypass browser cache
-      },
+    // Watch for route changes to update active state
+    watch(() => route.name, (newRoute) => {
+      console.log('📍 Route changed to:', newRoute);
     });
-    
-    // ✅ Log full data to verify all fields (phonenumber, location, etc.)
-    console.log("✅ Fresh profile data:", res.data);
-    
-    provider.value = res.data;
-    if (res.data._id) {
-      localStorage.setItem("provider_id", res.data._id);
-    }
-  } catch (err) {
-    console.error("Profile load failed:", err.response?.data || err.message);
-    localStorage.clear();
-    router.push({ name: "Login" });
+
+    onMounted(() => {
+      fetchProvider();
+      console.log('🎯 Dashboard mounted, current route:', route.name);
+    });
+
+    const handleProfileUpdated = () => {
+      fetchProvider(); // Refresh after update
+    };
+
+    // Return all reactive data and methods
+    return {
+      loggingOut,
+      provider,
+      sidebarOpen,
+      menuItems,
+      isActiveRoute,
+      goTo,
+      toggleSidebar,
+      logout,
+      handleProfileUpdated
+    };
   }
-}
-
-onMounted(() => {
-  fetchProvider();
-});
-
-function handleProfileUpdated() {
-  fetchProvider(); // Refresh after update
-}
+};
 </script>
 
 <style scoped>
@@ -407,6 +428,7 @@ function handleProfileUpdated() {
   padding: 1.8rem 1.4rem 2rem;
   padding-top: 80px;
   background: #f8fafc;
+  min-height: calc(100vh - 80px);
 }
 
 /* Fallback */
@@ -416,5 +438,6 @@ function handleProfileUpdated() {
   border-radius: 18px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   text-align: center;
+  margin: 2rem 0;
 }
 </style>

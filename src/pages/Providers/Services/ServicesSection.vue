@@ -1,4 +1,4 @@
-<!-- src/pages/Providers/ServicesSection.vue -->
+<!-- src/pages/Providers/Services/ServicesSection.vue -->
 <template>
   <div class="services-section">
     <div class="section-header">
@@ -24,6 +24,33 @@
       </button>
     </div>
 
+    <!-- NEW: Status Summary -->
+    <div class="status-summary">
+      <div class="status-item">
+        <span class="status-count total">{{ services.length }}</span>
+        <span class="status-label">Total Services</span>
+      </div>
+      <div class="status-item">
+        <span class="status-count active">{{ activeServicesCount }}</span>
+        <span class="status-label">Active</span>
+      </div>
+      <div class="status-item">
+        <span class="status-count draft">{{ draftServicesCount }}</span>
+        <span class="status-label">Draft</span>
+      </div>
+    </div>
+
+    <div v-if="showTimeSlotsModal && selectedService" class="modal-overlay">
+      <div class="modal-content">
+        <TimeSlots
+          :service="selectedService"
+          :serviceId="getServiceId(selectedService)"
+          @saved="handleTimeSlotsSaved"
+          @close="closeTimeSlots"
+        />
+      </div>
+    </div>
+
     <!-- Controls -->
     <div class="controls-bar">
       <div class="search-filter">
@@ -34,6 +61,14 @@
             type="text"
             placeholder="Search services..."
           />
+        </div>
+        <!-- NEW: Status Filter -->
+        <div class="status-filter">
+          <select v-model="statusFilter" class="form-control">
+            <option value="all">All Status</option>
+            <option value="active">Active Only</option>
+            <option value="draft">Draft Only</option>
+          </select>
         </div>
       </div>
       <button class="btn add-service-btn" @click="openForm(null)">
@@ -59,13 +94,19 @@
       <button class="btn primary-btn" @click="openForm(null)">Create Service</button>
     </div>
 
-    <!-- Services Grid -->
-    <div v-else class="services-grid">
+    <!-- Services Grid - Hidden when TimeSlots is open -->
+    <div v-else-if="!showTimeSlots" class="services-grid">
       <div
         v-for="service in filteredServices"
         :key="getServiceKey(service)"
         class="service-card"
+        :class="{ 'draft-service': getServiceStatus(service) === 'draft' }"
       >
+        <!-- NEW: Status Badge -->
+        <div class="service-status-badge" :class="getServiceStatus(service)">
+          {{ getServiceStatus(service) === 'draft' ? 'Draft' : 'Active' }}
+        </div>
+
         <!-- Banner -->
         <div class="card-banner">
           <img
@@ -91,6 +132,7 @@
               <!-- Debug: Show Service ID -->
               <div class="service-id-debug" v-if="debugMode">
                 <small>ID: {{ getServiceId(service) || 'No ID' }}</small>
+                <small>Status: {{ getServiceStatus(service) }}</small>
               </div>
             </div>
             <p class="service-description">
@@ -130,14 +172,36 @@
               </div>
             </div>
 
-            <!-- Availability Summary - Only show basic status in view mode -->
+            <!-- Availability Summary -->
             <div class="availability-summary">
-              <span class="availability-badge" :class="{ available: hasAnyRealAvailability(service) }">
-                {{ hasAnyRealAvailability(service) ? 'Available' : 'Not Available' }}
-              </span>
-              <span class="days-count" v-if="hasAnyRealAvailability(service)">
-                ({{ getAvailableDaysCount(service) }} days)
-              </span>
+              <template v-if="getServiceStatus(service) === 'active'">
+                <span class="availability-badge" :class="{ available: hasAnyRealAvailability(service) }">
+                  {{ hasAnyRealAvailability(service) ? 'Available' : 'Not Available' }}
+                </span>
+                <span class="days-count" v-if="hasAnyRealAvailability(service)">
+                  ({{ getAvailableDaysCount(service) }} days)
+                </span>
+                
+                <!-- Manage Time Slots Button -->
+                <div class="manage-slots-section">
+                  <button class="btn manage-slots-btn" @click="openTimeSlots(service)">
+                    <i class="fa-solid fa-calendar-edit"></i> Manage Time Slots
+                  </button>
+                </div>
+              </template>
+              
+              <template v-else>
+                <!-- DRAFT SERVICE: Add Time Slots Button -->
+                <div class="draft-actions">
+                  <div class="draft-notice">
+                    <i class="fa-solid fa-clock"></i>
+                    <span>Add time slots to activate service</span>
+                  </div>
+                  <button class="btn add-slots-btn" @click="openTimeSlots(service)">
+                    <i class="fa-solid fa-calendar-plus"></i> Add Time Slots
+                  </button>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -248,183 +312,35 @@
               </div>
             </div>
 
-            <!-- Availability Editing - ENHANCED WITH CALENDAR -->
+            <!-- NEW: Service Status Display -->
             <div class="form-group">
-              <h4>Availability Schedule</h4>
-              
-              <!-- Availability Mode Toggle -->
-              <div class="availability-mode-toggle">
-                <label class="mode-option">
-                  <input
-                    type="radio"
-                    v-model="availabilityMode"
-                    value="weekly"
-                    @change="switchAvailabilityMode('weekly')"
-                  />
-                  <span class="mode-label">
-                    <i class="fa-solid fa-calendar-week"></i>
-                    Weekly Schedule
-                  </span>
-                </label>
-                <label class="mode-option">
-                  <input
-                    type="radio"
-                    v-model="availabilityMode"
-                    value="calendar"
-                    @change="switchAvailabilityMode('calendar')"
-                  />
-                  <span class="mode-label">
-                    <i class="fa-solid fa-calendar-days"></i>
-                    Calendar Dates
-                  </span>
-                </label>
+              <label>Service Status</label>
+              <div class="status-display">
+                <span class="status-badge" :class="getServiceStatus(editingServiceData)">
+                  {{ getServiceStatus(editingServiceData) === 'draft' ? 'Draft' : 'Active' }}
+                </span>
+                <p class="status-note" v-if="getServiceStatus(editingServiceData) === 'draft'">
+                  <i class="fa-solid fa-info-circle"></i>
+                  Service will become active when you add time slots
+                </p>
               </div>
+            </div>
 
-              <!-- Weekly Availability (EXISTING CODE - UNCHANGED) -->
-              <div v-if="availabilityMode === 'weekly'" class="availability-edit">
-                <div 
-                  v-for="day in daysOfWeek" 
-                  :key="day.key" 
-                  class="day-edit-row"
-                  :class="{ 'day-off': !hasSlotsForDay(editingServiceData, day.name) }"
-                >
-                  <div class="day-header">
-                    <label class="day-toggle">
-                      <input
-                        type="checkbox"
-                        :checked="hasSlotsForDay(editingServiceData, day.name)"
-                        @change="handleDayToggle(day.name, $event.target.checked)"
-                      />
-                      <span class="day-label">{{ day.label }}</span>
-                    </label>
-                    <span v-if="!hasSlotsForDay(editingServiceData, day.name)" class="off-label">Not available</span>
-                  </div>
-                  
-                  <!-- Time Slots for this day - ONLY IN EDIT MODE -->
-                  <div v-if="hasSlotsForDay(editingServiceData, day.name)" class="time-slots-container">
-                    <div class="slots-list">
-                      <div 
-                        v-for="(slot, index) in getSlotsForDay(editingServiceData, day.name)" 
-                        :key="index" 
-                        class="slot-edit-item"
-                      >
-                        <div class="slot-time-inputs">
-                          <input
-                            :value="getSlotStartTime(slot)"
-                            @input="updateSlotTime(day.name, index, 'startTime', $event.target.value)"
-                            type="time"
-                            class="time-input"
-                          />
-                          <span class="time-separator">to</span>
-                          <input
-                            :value="getSlotEndTime(slot)"
-                            @input="updateSlotTime(day.name, index, 'endTime', $event.target.value)"
-                            type="time"
-                            class="time-input"
-                          />
-                        </div>
-                        <!-- ✅ FIXED: Delete button always visible and properly positioned -->
-                        <button 
-                          type="button" 
-                          class="btn-remove-slot" 
-                          @click="removeSlot(day.name, index)"
-                          title="Remove time slot"
-                        >
-                          <i class="fa-solid fa-xmark"></i>
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <button 
-                      type="button" 
-                      class="btn-add-slot" 
-                      @click="addSlot(day.name)"
-                    >
-                      <i class="fa-solid fa-plus"></i> Add another time block
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Calendar Availability (NEW CALENDAR MODE) -->
-              <div v-else class="calendar-availability">
-                <div class="calendar-header">
-                  <h5>Select Specific Dates & Times</h5>
-                  <p class="calendar-subtitle">Choose specific dates and set time slots for each date</p>
-                </div>
-                
-                <!-- Quick Date Actions -->
-                <div class="quick-date-actions">
-                  <button class="btn quick-action-btn" @click="addTodaySlots">
-                    <i class="fa-solid fa-calendar-day"></i> Add Today
-                  </button>
-                  <button class="btn quick-action-btn" @click="addTomorrowSlots">
-                    <i class="fa-solid fa-calendar-plus"></i> Add Tomorrow
-                  </button>
-                  <button class="btn quick-action-btn" @click="openDateRangeModal">
-                    <i class="fa-solid fa-calendar-week"></i> Add Date Range
-                  </button>
-                </div>
-
-                <!-- Date Slots List -->
-                <div class="date-slots-list">
-                  <div 
-                    v-for="(dateSlot, index) in getDateSpecificSlots()" 
-                    :key="index"
-                    class="date-slot-item"
-                  >
-                    <div class="date-slot-header">
-                      <div class="date-info">
-                        <strong>{{ formatDateDisplay(dateSlot.date) }}</strong>
-                        <span class="date-status" :class="getDateSlotStatus(dateSlot)">
-                          {{ getDateSlotStatus(dateSlot) }}
-                        </span>
-                      </div>
-                      <div class="date-actions">
-                        <button 
-                          class="btn-date-action edit-date"
-                          @click="editDateSlots(dateSlot)"
-                          title="Edit time slots"
-                        >
-                          <i class="fa-solid fa-pen"></i>
-                        </button>
-                        <button 
-                          class="btn-date-action remove-date"
-                          @click="removeDateSlot(index)"
-                          title="Remove date"
-                        >
-                          <i class="fa-solid fa-trash"></i>
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <!-- Time Slots for this date -->
-                    <div v-if="dateSlot.timeSlots && dateSlot.timeSlots.length > 0" class="date-time-slots">
-                      <div 
-                        v-for="(timeSlot, timeIndex) in dateSlot.timeSlots" 
-                        :key="timeIndex"
-                        class="date-time-slot"
-                        :class="{ booked: timeSlot.isBooked }"
-                      >
-                        <span class="time-range">{{ timeSlot.startTime }} - {{ timeSlot.endTime }}</span>
-                        <span class="time-status" :class="timeSlot.isBooked ? 'booked' : 'available'">
-                          {{ timeSlot.isBooked ? 'Booked' : 'Available' }}
-                        </span>
-                      </div>
-                    </div>
-                    <div v-else class="no-time-slots">
-                      <i class="fa-solid fa-clock"></i>
-                      <span>No time slots set</span>
-                    </div>
-                  </div>
-                  
-                  <!-- Empty State for Date Slots -->
-                  <div v-if="getDateSpecificSlots().length === 0" class="empty-date-slots">
-                    <i class="fa-solid fa-calendar-xmark"></i>
-                    <p>No specific dates added yet</p>
-                    <p class="empty-hint">Use the buttons above to add dates</p>
-                  </div>
-                </div>
+            <!-- Quick Availability Toggle (Simple version) -->
+            <div class="form-group">
+              <h4>Quick Availability</h4>
+              <div class="quick-availability">
+                <label class="availability-toggle">
+                  <input
+                    type="checkbox"
+                    :checked="hasAnyRealAvailability(editingServiceData)"
+                    @change="toggleQuickAvailability($event.target.checked)"
+                  />
+                  <span class="toggle-label">Service is available for booking</span>
+                </label>
+                <p class="availability-note">
+                  Use the "Manage Time Slots" button for detailed calendar scheduling
+                </p>
               </div>
             </div>
 
@@ -447,22 +363,61 @@
           <button class="action-btn delete" @click.stop="confirmDelete(getServiceId(service), service?.title)" :disabled="!getServiceId(service)">
             <i class="fa-solid fa-trash"></i> Delete
           </button>
-          <button class="action-btn preview" @click.stop="previewService(getServiceId(service))" :disabled="!getServiceId(service)">
+          <button class="action-btn preview" @click.stop="previewService(getServiceId(service))" :disabled="!getServiceId(service) || getServiceStatus(service) === 'draft'">
             <i class="fa-solid fa-eye"></i> Preview
+            <span v-if="getServiceStatus(service) === 'draft'" class="preview-disabled-tooltip">(Active only)</span>
           </button>
         </div>
       </div>
     </div>
 
+    <!-- Time Slots Overlay - Slides down when active -->
+    <transition name="slide-down">
+      <div v-if="showTimeSlots" class="time-slots-overlay">
+        <!-- DEBUG VISUAL INDICATOR -->
+        <div style="position: fixed; top: 10px; right: 10px; background: red; color: white; padding: 10px; z-index: 9999; font-weight: bold;">
+          🚀 DEBUG: TimeSlots Overlay VISIBLE
+        </div>
+
+        <div class="time-slots-header">
+          <button class="btn back-btn" @click="closeTimeSlots">
+            <i class="fa-solid fa-arrow-left"></i> Back to Services
+          </button>
+          <h2 class="time-slots-title">
+            {{ getServiceStatus(selectedService) === 'draft' ? 'Add Time Slots' : 'Manage Time Slots' }}
+          </h2>
+          <p class="time-slots-subtitle" v-if="selectedService">
+            for {{ selectedService.title }}
+            <span class="service-status-indicator" :class="getServiceStatus(selectedService)">
+              ({{ getServiceStatus(selectedService) === 'draft' ? 'Draft' : 'Active' }})
+            </span>
+          </p>
+        </div>
+
+        <!-- TimeSlots Component -->
+        <TimeSlots 
+          v-if="selectedService && showTimeSlots"
+          :service="selectedService"
+          :serviceId="getServiceId(selectedService)"
+          @close="closeTimeSlots"
+          @saved="handleTimeSlotsSaved"
+        />
+      </div>
+    </transition>
+
     <!-- Debug Panel -->
-    <div v-if="debugMode" class="debug-panel">
+    <div v-if="debugMode && !showTimeSlots" class="debug-panel">
       <h4>Debug Information</h4>
       <p>Total Services: {{ services.length }}</p>
+      <p>Active Services: {{ activeServicesCount }}</p>
+      <p>Draft Services: {{ draftServicesCount }}</p>
       <p>Services with IDs: {{ services.filter(s => getServiceId(s)).length }}</p>
       <p>Loading: {{ loading }}</p>
       <p>Last Error: {{ lastError }}</p>
       <div v-for="(service, index) in services" :key="index">
-        Service {{ index }}: "{{ service?.title || 'NULL SERVICE' }}" - ID: {{ getServiceId(service) || 'MISSING' }}
+        Service {{ index }}: "{{ service?.title || 'NULL SERVICE' }}" - 
+        ID: {{ getServiceId(service) || 'MISSING' }} - 
+        Status: {{ getServiceStatus(service) }}
       </div>
     </div>
 
@@ -502,114 +457,16 @@
         </div>
       </div>
     </transition>
-
-    <!-- Date Slots Modal -->
-    <transition name="modal-fade">
-      <div v-if="showDateSlotsModal" class="modal-overlay" @click.self="closeDateSlotsModal">
-        <div class="modal date-slots-modal" @click.stop>
-          <div class="modal-header">
-            <h3>Manage Time Slots for {{ editingDateSlot ? formatDateDisplay(editingDateSlot.date) : 'Selected Date' }}</h3>
-            <button class="close-btn" @click="closeDateSlotsModal" aria-label="Close">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-          
-          <div class="modal-content">
-            <!-- Time Slot Management -->
-            <div class="time-slot-management">
-              <h4>Time Slots</h4>
-              
-              <!-- Existing Time Slots -->
-              <div v-if="editingTimeSlots.length > 0" class="existing-time-slots">
-                <div 
-                  v-for="(slot, index) in editingTimeSlots" 
-                  :key="index"
-                  class="time-slot-item"
-                >
-                  <div class="slot-time-inputs">
-                    <input
-                      v-model="slot.startTime"
-                      type="time"
-                      class="time-input"
-                    />
-                    <span class="time-separator">to</span>
-                    <input
-                      v-model="slot.endTime"
-                      type="time"
-                      class="time-input"
-                    />
-                  </div>
-                  <button 
-                    class="btn-remove-time-slot"
-                    @click="removeEditingTimeSlot(index)"
-                    title="Remove time slot"
-                  >
-                    <i class="fa-solid fa-xmark"></i>
-                  </button>
-                </div>
-              </div>
-              
-              <!-- Add New Time Slot -->
-              <div class="add-time-slot">
-                <div class="new-slot-inputs">
-                  <input
-                    v-model="newTimeSlot.startTime"
-                    type="time"
-                    class="time-input"
-                    placeholder="Start time"
-                  />
-                  <span class="time-separator">to</span>
-                  <input
-                    v-model="newTimeSlot.endTime"
-                    type="time"
-                    class="time-input"
-                    placeholder="End time"
-                  />
-                  <button 
-                    class="btn-add-time-slot"
-                    @click="addNewTimeSlot"
-                    :disabled="!newTimeSlot.startTime || !newTimeSlot.endTime"
-                  >
-                    <i class="fa-solid fa-plus"></i> Add
-                  </button>
-                </div>
-                
-                <!-- Quick Time Templates -->
-                <div class="quick-time-templates">
-                  <button
-                    v-for="template in quickTimeTemplates"
-                    :key="template.label"
-                    class="quick-time-btn"
-                    @click="applyQuickTimeTemplate(template)"
-                  >
-                    {{ template.label }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="modal-actions">
-            <button class="btn btn-secondary" @click="closeDateSlotsModal">
-              Cancel
-            </button>
-            <button class="btn btn-primary" @click="saveDateSlots">
-              Save Time Slots
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
   </div>
-</template>
-
+  </template>
 <script>
 import ServiceForm from './ServiceForm.vue';
+import TimeSlots from './TimeSlots.vue';
 import http from "@/api/index.js";
 
 export default {
   name: 'ServicesSection',
-  components: { ServiceForm },
+  components: { ServiceForm, TimeSlots },
   data() {
     return {
       services: [],
@@ -620,6 +477,7 @@ export default {
       editingServiceId: null,
       editingServiceData: null,
       searchQuery: '',
+      statusFilter: 'all',
       showDeleteConfirm: false,
       serviceToDelete: null,
       serviceToDeleteTitle: '',
@@ -627,19 +485,11 @@ export default {
       saving: false,
       errorMessage: '',
       successMessage: '',
-      debugMode: true,
+      debugMode: false,
       lastError: null,
-      
-      // NEW: Calendar-related data
-      availabilityMode: 'weekly', // 'weekly' or 'calendar'
-      showDateSlotsModal: false,
-      editingDateSlot: null,
-      editingTimeSlots: [],
-      newTimeSlot: {
-        startTime: '',
-        endTime: ''
-      },
-      
+      showTimeSlotsModal: false,
+      selectedService: null,
+      selectedServiceId: null, // ADD THIS
       daysOfWeek: [
         { key: 'monday', name: 'monday', label: 'Monday' },
         { key: 'tuesday', name: 'tuesday', label: 'Tuesday' },
@@ -648,13 +498,6 @@ export default {
         { key: 'friday', name: 'friday', label: 'Friday' },
         { key: 'saturday', name: 'saturday', label: 'Saturday' },
         { key: 'sunday', name: 'sunday', label: 'Sunday' }
-      ],
-      
-      quickTimeTemplates: [
-        { label: 'Morning (8AM-12PM)', start: '08:00', end: '12:00' },
-        { label: 'Afternoon (1PM-5PM)', start: '13:00', end: '17:00' },
-        { label: 'Evening (5PM-9PM)', start: '17:00', end: '21:00' },
-        { label: 'Full Day (8AM-6PM)', start: '08:00', end: '18:00' }
       ]
     };
   },
@@ -662,6 +505,10 @@ export default {
   computed: {
     filteredServices() {
       let result = this.services.filter(service => service != null);
+      
+      if (this.statusFilter !== 'all') {
+        result = result.filter(s => this.getServiceStatus(s) === this.statusFilter);
+      }
       
       if (this.searchQuery) {
         const q = this.searchQuery.toLowerCase();
@@ -672,6 +519,18 @@ export default {
         );
       }
       return result;
+    },
+
+    activeServicesCount() {
+      return this.services.filter(s => this.getServiceStatus(s) === 'active').length;
+    },
+
+    draftServicesCount() {
+      return this.services.filter(s => this.getServiceStatus(s) === 'draft').length;
+    },
+
+    showTimeSlots() {
+      return this.showTimeSlotsModal;
     }
   },
 
@@ -681,7 +540,117 @@ export default {
   },
 
   methods: {
-    // ✅ ALL YOUR EXISTING METHODS REMAIN EXACTLY THE SAME
+    // ✅ Service Status Detection
+    getServiceStatus(service) {
+      if (!service) return 'draft';
+      
+      if (!service.slots || !Array.isArray(service.slots) || service.slots.length === 0) {
+        return 'draft';
+      }
+      
+      const hasRealSlots = service.slots.some(slot => {
+        if (!slot) return false;
+        
+        if (slot.weeklySchedule && Array.isArray(slot.weeklySchedule)) {
+          return slot.weeklySchedule.some(week => 
+            week && 
+            week.timeSlots && 
+            Array.isArray(week.timeSlots) && 
+            week.timeSlots.length > 0
+          );
+        }
+        
+        return false;
+      });
+      
+      return hasRealSlots ? 'active' : 'draft';
+    },
+
+    // ✅ Real Availability Check
+    hasAnyRealAvailability(service) {
+      return this.getServiceStatus(service) === 'active';
+    },
+
+    // ✅ Available Days Count
+    getAvailableDaysCount(service) {
+      if (this.getServiceStatus(service) !== 'active') return 0;
+      if (!service.slots || !Array.isArray(service.slots)) return 0;
+      
+      const daysWithSlots = new Set();
+      
+      service.slots.forEach(slot => {
+        if (slot && slot.weeklySchedule) {
+          slot.weeklySchedule.forEach(week => {
+            if (week && week.timeSlots && week.timeSlots.length > 0) {
+              daysWithSlots.add(week.day);
+            }
+          });
+        }
+      });
+      
+      return daysWithSlots.size;
+    },
+
+    // ✅ FIXED: Open TimeSlots with proper service ID
+    openTimeSlots(service) {
+      console.log('🚀 Opening TimeSlots for:', service?.title);
+      this.selectedService = service;
+      this.selectedServiceId = this.getServiceId(service); // SET THE SERVICE ID
+      this.showTimeSlotsModal = true;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
+    closeTimeSlots() {
+      this.showTimeSlotsModal = false;
+      this.selectedService = null;
+      this.selectedServiceId = null;
+    },
+
+    // ✅ Handle time slots saved
+    async handleTimeSlotsSaved(result) {
+      console.log('🔄 Time slots saved successfully');
+      
+      try {
+        await this.fetchServices();
+        this.showNotification('Time slots saved successfully!', 'success');
+      } catch (error) {
+        console.error('❌ Error handling time slots save:', error);
+        this.showNotification('Time slots saved successfully!', 'success');
+      } finally {
+        this.closeTimeSlots();
+      }
+    },
+
+    // Notification helper method
+    showNotification(message, type = 'info') {
+      const notificationEl = document.createElement('div');
+      notificationEl.className = `global-notification global-notification-${type}`;
+      notificationEl.textContent = message;
+      notificationEl.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#dc2626' : type === 'warning' ? '#f59e0b' : '#3b82f6'};
+        color: white;
+        border-radius: 8px;
+        z-index: 10000;
+        font-weight: 500;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        max-width: 400px;
+        word-wrap: break-word;
+      `;
+      
+      document.body.appendChild(notificationEl);
+      
+      setTimeout(() => {
+        if (document.body.contains(notificationEl)) {
+          document.body.removeChild(notificationEl);
+        }
+      }, 4000);
+    },
+
+    // Service ID methods
     getServiceId(service) {
       if (!service) return null;
       return service.serviceId || service._id || service.id || null;
@@ -695,16 +664,12 @@ export default {
     setError(message) {
       this.errorMessage = message;
       this.lastError = message;
-      setTimeout(() => {
-        this.errorMessage = '';
-      }, 5000);
+      setTimeout(() => { this.errorMessage = ''; }, 5000);
     },
 
     setSuccess(message) {
       this.successMessage = message;
-      setTimeout(() => {
-        this.successMessage = '';
-      }, 3000);
+      setTimeout(() => { this.successMessage = ''; }, 3000);
     },
 
     closeForm() {
@@ -736,39 +701,24 @@ export default {
       this.lastError = null;
       
       try {
-        console.log("🔄 Fetching services...");
-        
-        const endpoint = '/services';
-        console.log(`🔄 Using endpoint: ${endpoint}`);
-        
-        const res = await http.get(endpoint);
+        const res = await http.get('/services');
         const servicesData = res.data;
         
-        console.log(`✅ Success with endpoint: ${endpoint}`, servicesData);
-        this.lastError = null;
-
         let processedServices = [];
         
         if (Array.isArray(servicesData)) {
           processedServices = servicesData.filter(service => 
             service != null && typeof service === 'object'
           );
-          
-          console.log(`✅ Processed ${processedServices.length} valid services`);
-          
-          processedServices.forEach((service, index) => {
-            console.log(`🔍 Service ${index}: "${service.title}" - serviceId: ${service.serviceId}`);
-          });
-          
         } else {
-          console.warn('⚠️ Unexpected services data format:', typeof servicesData, servicesData);
+          console.warn('Unexpected services data format:', typeof servicesData);
           processedServices = [];
         }
 
         this.services = processedServices;
         
       } catch (err) {
-        console.error("❌ Failed to fetch services:", err);
+        console.error("Failed to fetch services:", err);
         const errorMsg = err.response?.data?.message || err.message || "Could not load services";
         this.setError(errorMsg);
         this.services = [];
@@ -777,41 +727,26 @@ export default {
       }
     },
 
-    // ✅ FIXED: Completely rewritten startEdit method to use serviceId
+    // Edit methods
     startEdit(service) {
-      console.log('🔄 Start edit called with service:', service);
-      
       if (!service) {
-        console.error('❌ Cannot edit service - service is null');
         this.setError("Cannot edit service: Service data is missing");
         return;
       }
       
-      // ✅ Use serviceId instead of MongoDB _id
       const serviceId = this.getServiceId(service);
       
       if (!serviceId) {
-        console.error('❌ Cannot edit service - no serviceId found:', service);
         this.setError("This service cannot be edited (missing service ID).");
         return;
       }
       
-      console.log(`✏️ Starting edit for service with serviceId: ${serviceId}`, service);
-      
-      // Create a deep copy for editing - make sure we copy all data including slots
       this.editingServiceData = JSON.parse(JSON.stringify(service));
       this.editingServiceId = serviceId;
       
-      // Ensure slots array exists and initialize calendar mode if needed
       if (!this.editingServiceData.slots) {
         this.editingServiceData.slots = [];
       }
-      
-      // Set initial availability mode based on existing data
-      this.availabilityMode = this.hasDateSpecificSlots() ? 'calendar' : 'weekly';
-      
-      console.log('✅ Edit mode activated for service ID:', this.editingServiceId);
-      console.log('📋 Service data ready for editing:', this.editingServiceData);
     },
 
     confirmDelete(serviceId, serviceTitle) {
@@ -830,20 +765,12 @@ export default {
       
       this.deleting = true;
       try {
-        console.log(`🗑️ Deleting service with serviceId: ${this.serviceToDelete}`);
-        
-        const endpoint = `/services/${this.serviceToDelete}`;
-        console.log(`🔄 Using delete endpoint: ${endpoint}`);
-        
-        await http.delete(endpoint);
-        console.log(`✅ Successfully deleted with endpoint: ${endpoint}`);
-
+        await http.delete(`/services/${this.serviceToDelete}`);
         await this.fetchServices();
         this.showDeleteConfirm = false;
         this.setSuccess("Service deleted successfully!");
-        
       } catch (err) {
-        console.error("❌ Failed to delete service:", err);
+        console.error("Failed to delete service:", err);
         const msg = err.response?.data?.message || err.message || "Failed to delete service";
         this.setError(msg);
       } finally {
@@ -861,9 +788,6 @@ export default {
 
       this.saving = true;
       try {
-        console.log(`💾 Saving service with serviceId: ${this.editingServiceId}`);
-
-        // ✅ EXTRA SAFE: Create a minimal, validated payload
         const serviceData = {
           title: String(this.editingServiceData.title || '').trim(),
           description: String(this.editingServiceData.description || '').trim(),
@@ -872,84 +796,31 @@ export default {
           paymentMethod: String(this.editingServiceData.paymentMethod || 'Telebirr'),
           serviceType: String(this.editingServiceData.serviceType || 'fixed'),
           priceUnit: String(this.editingServiceData.priceUnit || 'ETB'),
+          location: String(this.editingServiceData.location || ''),
+          email: String(this.editingServiceData.email || ''),
+          phone: String(this.editingServiceData.phone || ''),
+          experience: String(this.editingServiceData.experience || '')
         };
 
-        // ✅ Only include categoryId if it exists and is valid
         if (this.editingServiceData.categoryId && this.editingServiceData.categoryId.length > 5) {
           serviceData.categoryId = String(this.editingServiceData.categoryId);
         }
 
-        // ✅ ENHANCED SLOTS: Support both weekly and date-specific slots
         if (this.editingServiceData.slots && Array.isArray(this.editingServiceData.slots)) {
-          serviceData.slots = this.editingServiceData.slots.map(slot => {
-            if (!slot) return null;
-            
-            // Handle weekly slots (existing structure)
-            if (slot.dayOfWeek || slot.weeklySchedule) {
-              const cleanSlot = {
-                weeklySchedule: (slot.weeklySchedule || []).map(schedule => ({
-                  day: String(schedule.day || '').toLowerCase(),
-                  isWorkingDay: Boolean(schedule.isWorkingDay),
-                  timeSlots: (schedule.timeSlots || []).map(timeSlot => ({
-                    startTime: String(timeSlot.startTime || '08:00'),
-                    endTime: String(timeSlot.endTime || '10:00'),
-                    isAvailable: Boolean(timeSlot.isAvailable)
-                  })).filter(ts => ts.startTime && ts.endTime)
-                })).filter(ws => ws.day && ws.timeSlots.length > 0),
-                isActive: Boolean(slot.isActive),
-                date: slot.date || new Date().toISOString().split('T')[0],
-                slotLabel: String(slot.slotLabel || 'Schedule'),
-                isBooked: Boolean(slot.isBooked),
-                isWorkingDay: Boolean(slot.isWorkingDay),
-                slotType: 'weekly'
-              };
-              return cleanSlot.weeklySchedule.length > 0 ? cleanSlot : null;
-            }
-            
-            // Handle date-specific slots (new structure)
-            if (slot.date && slot.timeSlots) {
-              const cleanSlot = {
-                date: String(slot.date),
-                timeSlots: (slot.timeSlots || []).map(timeSlot => ({
-                  startTime: String(timeSlot.startTime || '08:00'),
-                  endTime: String(timeSlot.endTime || '10:00'),
-                  isAvailable: Boolean(timeSlot.isAvailable !== false),
-                  isBooked: Boolean(timeSlot.isBooked)
-                })).filter(ts => ts.startTime && ts.endTime),
-                isActive: Boolean(slot.isActive !== false),
-                slotType: 'date-specific'
-              };
-              return cleanSlot.timeSlots.length > 0 ? cleanSlot : null;
-            }
-            
-            return null;
-          }).filter(slot => slot !== null);
+          serviceData.slots = this.editingServiceData.slots;
         } else {
           serviceData.slots = [];
         }
 
-        console.log('🔄 FINAL VALIDATED PAYLOAD:', JSON.stringify(serviceData, null, 2));
-        console.log('🔍 Slot count:', serviceData.slots.length);
-
-        const endpoint = `/services/${this.editingServiceId}`;
-        console.log(`🚀 Sending PUT request to: ${endpoint}`);
-        
-        const response = await http.put(endpoint, serviceData, {
-          timeout: 10000
-        });
-        
-        console.log(`✅ SUCCESS: Service updated successfully!`, response.data);
+        await http.put(`/services/${this.editingServiceId}`, serviceData);
         this.setSuccess("Service updated successfully!");
 
         this.editingServiceId = null;
         this.editingServiceData = null;
-        this.availabilityMode = 'weekly';
-        
         await this.fetchServices();
         
       } catch (err) {
-        console.error('❌ SAVE FAILED:', err);
-        
+        console.error('Save failed:', err);
         let errorMessage = "Failed to save service";
         
         if (err.response?.status === 500) {
@@ -968,124 +839,6 @@ export default {
       }
     },
 
-    // ✅ Helper method to get available days count for summary
-    getAvailableDaysCount(service) {
-      if (!service) return 0;
-      return this.daysOfWeek.filter(day => this.hasSlotsForDay(service, day.name)).length;
-    },
-
-    hasAnyRealAvailability(service) {
-      if (!service) return false;
-      return this.daysOfWeek.some(day => this.hasSlotsForDay(service, day.name)) || 
-             this.hasDateSpecificSlots(service);
-    },
-
-    hasSlotsForDay(service, dayName) {
-      if (!service || !service.slots || !Array.isArray(service.slots)) {
-        return false;
-      }
-
-      const dayNameLower = dayName.toLowerCase();
-      
-      return service.slots.some(slot => {
-        if (!slot) return false;
-        
-        const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-        const slotDayLower = slotDay.toString().toLowerCase();
-        
-        const matchesDay = slotDayLower.includes(dayNameLower);
-        
-        if (!matchesDay) return false;
-        
-        if (slot.weeklySchedule && Array.isArray(slot.weeklySchedule)) {
-          return slot.weeklySchedule.some(weekly => 
-            weekly && 
-            weekly.timeSlots && 
-            Array.isArray(weekly.timeSlots) && 
-            weekly.timeSlots.length > 0 &&
-            weekly.timeSlots.some(timeSlot => 
-              timeSlot && 
-              timeSlot.startTime && 
-              timeSlot.endTime && 
-              (timeSlot.isAvailable !== false)
-            )
-          );
-        }
-        
-        return false;
-      });
-    },
-
-    getSlotsForDay(service, dayName) {
-      if (!service || !service.slots || !Array.isArray(service.slots)) {
-        return [];
-      }
-
-      const dayNameLower = dayName.toLowerCase();
-      const slots = [];
-
-      service.slots.forEach(slot => {
-        if (!slot) return;
-        
-        const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-        const slotDayLower = slotDay.toString().toLowerCase();
-        
-        const matchesDay = slotDayLower.includes(dayNameLower);
-
-        if (matchesDay && slot.weeklySchedule && Array.isArray(slot.weeklySchedule)) {
-          slot.weeklySchedule.forEach((weeklySchedule) => {
-            if (!weeklySchedule) return;
-            
-            const weeklyDay = weeklySchedule.day || '';
-            const weeklyDayLower = weeklyDay.toString().toLowerCase();
-            
-            if (weeklyDayLower.includes(dayNameLower) && 
-                weeklySchedule.timeSlots && 
-                Array.isArray(weeklySchedule.timeSlots)) {
-              
-              weeklySchedule.timeSlots.forEach((timeSlot) => {
-                if (timeSlot && 
-                    timeSlot.startTime && 
-                    timeSlot.endTime && 
-                    (timeSlot.isAvailable !== false)) {
-                  slots.push({
-                    startTime: timeSlot.startTime,
-                    endTime: timeSlot.endTime,
-                    isAvailable: timeSlot.isAvailable
-                  });
-                }
-              });
-            }
-          });
-        }
-      });
-
-      return slots;
-    },
-
-    getSlotStartTime(slot) {
-      return slot?.startTime || "";
-    },
-
-    getSlotEndTime(slot) {
-      return slot?.endTime || "";
-    },
-
-    formatSlotTime(timeStr) {
-      if (!timeStr) return "";
-      
-      if (typeof timeStr === 'string') {
-        if (timeStr.includes('T')) {
-          const date = new Date(timeStr);
-          return date.toTimeString().slice(0, 5);
-        }
-        if (timeStr.includes(':')) {
-          return timeStr.length === 5 ? timeStr : timeStr.substring(0, 5);
-        }
-      }
-      return timeStr;
-    },
-
     openForm(service) {
       this.editingService = service ? { ...service } : null;
       this.showForm = true;
@@ -1094,7 +847,7 @@ export default {
     async onServiceSaved(savedService) {
       await this.fetchServices();
       this.closeForm();
-      this.setSuccess("Service saved successfully!");
+      this.setSuccess("Service saved successfully! Now add time slots to activate it.");
     },
 
     previewService(serviceId) {
@@ -1106,932 +859,397 @@ export default {
     },
 
     cancelEdit() {
-      console.log('❌ Edit cancelled');
       this.editingServiceId = null;
       this.editingServiceData = null;
-      this.availabilityMode = 'weekly';
     },
 
-    // ✅ IMPROVED: Better day toggle with default slots
-    handleDayToggle(dayName, isActive) {
+    // Quick availability toggle
+    toggleQuickAvailability(isAvailable) {
       if (!this.editingServiceData) return;
       
-      if (!this.editingServiceData.slots) {
-        this.editingServiceData.slots = [];
-      }
-      
-      if (isActive) {
-        const existingSlot = this.editingServiceData.slots.find(slot => {
-          if (!slot) return false;
-          const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-          return slotDay.toLowerCase().includes(dayName.toLowerCase());
-        });
-        
-        if (!existingSlot) {
-          this.editingServiceData.slots.push({
-            dayOfWeek: dayName,
-            slotLabel: `${dayName} Schedule`,
+      if (isAvailable) {
+        if (!this.editingServiceData.slots || this.editingServiceData.slots.length === 0) {
+          this.editingServiceData.slots = [{
+            dayOfWeek: 'monday',
+            slotLabel: 'Default Schedule',
             isActive: true,
             weeklySchedule: [{
-              day: dayName,
+              day: 'monday',
               isWorkingDay: true,
               timeSlots: [
-                { startTime: "08:00", endTime: "10:00", isAvailable: true },
-                { startTime: "10:00", endTime: "12:00", isAvailable: true }
+                { startTime: "09:00", endTime: "17:00", isAvailable: true }
               ]
             }]
-          });
-          console.log(`✅ Added ${dayName} with default time slots`);
+          }];
         }
       } else {
-        this.editingServiceData.slots = this.editingServiceData.slots.filter(slot => {
-          if (!slot) return false;
-          const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-          return !slotDay.toLowerCase().includes(dayName.toLowerCase());
-        });
-        console.log(`✅ Removed ${dayName} schedule`);
-      }
-    },
-
-    // ✅ IMPROVED: Better addSlot with auto-incrementing times
-    addSlot(dayName) {
-      if (!this.editingServiceData) return;
-      
-      let daySlot = this.editingServiceData.slots.find(slot => {
-        if (!slot) return false;
-        const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-        return slotDay.toLowerCase().includes(dayName.toLowerCase());
-      });
-      
-      if (!daySlot) {
-        // If no slot exists for this day, create one with the first time slot
-        daySlot = {
-          dayOfWeek: dayName,
-          slotLabel: `${dayName} Schedule`,
-          isActive: true,
-          weeklySchedule: [{
-            day: dayName,
-            isWorkingDay: true,
-            timeSlots: []
-          }]
-        };
-        this.editingServiceData.slots.push(daySlot);
-      }
-      
-      if (!daySlot.weeklySchedule || daySlot.weeklySchedule.length === 0) {
-        daySlot.weeklySchedule = [{
-          day: dayName,
-          isWorkingDay: true,
-          timeSlots: []
-        }];
-      }
-      
-      if (!daySlot.weeklySchedule[0].timeSlots) {
-        daySlot.weeklySchedule[0].timeSlots = [];
-      }
-      
-      const timeSlots = daySlot.weeklySchedule[0].timeSlots;
-      let newStartTime = "08:00";
-      let newEndTime = "10:00";
-      
-      if (timeSlots.length > 0) {
-        // Auto-increment from the last time slot
-        const lastSlot = timeSlots[timeSlots.length - 1];
-        if (lastSlot && lastSlot.endTime) {
-          const [hours, minutes] = lastSlot.endTime.split(':').map(Number);
-          newStartTime = lastSlot.endTime;
-          const endHours = (hours + 2) % 24;
-          newEndTime = `${endHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-        }
-      }
-      
-      timeSlots.push({ 
-        startTime: newStartTime, 
-        endTime: newEndTime,  
-        isAvailable: true 
-      });
-      
-      console.log(`✅ Added new time slot for ${dayName}: ${newStartTime} - ${newEndTime}`);
-      console.log(`📋 Total slots for ${dayName}: ${timeSlots.length}`);
-    },
-
-    // ✅ IMPROVED: Better removeSlot with confirmation
-    removeSlot(dayName, slotIndex) {
-      if (!this.editingServiceData) return;
-      
-      const daySlot = this.editingServiceData.slots.find(slot => {
-        if (!slot) return false;
-        const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-        return slotDay.toLowerCase().includes(dayName.toLowerCase());
-      });
-      
-      if (daySlot && 
-          daySlot.weeklySchedule && 
-          daySlot.weeklySchedule[0] && 
-          daySlot.weeklySchedule[0].timeSlots) {
-        
-        const timeSlots = daySlot.weeklySchedule[0].timeSlots;
-        
-        if (timeSlots.length > 1) {
-          timeSlots.splice(slotIndex, 1);
-          console.log(`✅ Removed time slot ${slotIndex} for ${dayName}`);
-          console.log(`📋 Remaining slots for ${dayName}: ${timeSlots.length}`);
-        } else {
-          // Remove the entire day slot if it's the last time slot
-          this.editingServiceData.slots = this.editingServiceData.slots.filter(slot => {
-            if (!slot) return false;
-            const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-            return !slotDay.toLowerCase().includes(dayName.toLowerCase());
-          });
-          console.log(`✅ Removed entire day schedule for ${dayName} (last slot removed)`);
-        }
-      }
-    },
-
-    updateSlotTime(dayName, slotIndex, timeType, newTime) {
-      if (!this.editingServiceData) return;
-      
-      const daySlot = this.editingServiceData.slots.find(slot => {
-        if (!slot) return false;
-        const slotDay = slot.dayOfWeek || slot.day || slot.slotLabel || '';
-        return slotDay.toLowerCase().includes(dayName.toLowerCase());
-      });
-      
-      if (daySlot && 
-          daySlot.weeklySchedule && 
-          daySlot.weeklySchedule[0] && 
-          daySlot.weeklySchedule[0].timeSlots && 
-          daySlot.weeklySchedule[0].timeSlots[slotIndex]) {
-        daySlot.weeklySchedule[0].timeSlots[slotIndex][timeType] = newTime;
-        console.log(`✅ Updated ${timeType} for ${dayName} slot ${slotIndex}: ${newTime}`);
-      }
-    },
-
-    // ========== NEW CALENDAR METHODS ==========
-    
-    // Switch between weekly and calendar availability modes
-    switchAvailabilityMode(mode) {
-      this.availabilityMode = mode;
-      console.log(`🔄 Switched to ${mode} availability mode`);
-    },
-
-    // Check if service has date-specific slots
-    hasDateSpecificSlots(service = null) {
-      const targetService = service || this.editingServiceData;
-      if (!targetService || !targetService.slots || !Array.isArray(targetService.slots)) {
-        return false;
-      }
-      return targetService.slots.some(slot => slot && slot.date && slot.timeSlots);
-    },
-
-    // Get all date-specific slots
-    getDateSpecificSlots() {
-      if (!this.editingServiceData || !this.editingServiceData.slots) {
-        return [];
-      }
-      return this.editingServiceData.slots.filter(slot => 
-        slot && slot.date && Array.isArray(slot.timeSlots)
-      );
-    },
-
-    // Format date for display
-    formatDateDisplay(dateString) {
-      if (!dateString) return '';
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    },
-
-    // Get status for date slot
-    getDateSlotStatus(dateSlot) {
-      if (!dateSlot.timeSlots || dateSlot.timeSlots.length === 0) {
-        return 'No slots';
-      }
-      const hasBookings = dateSlot.timeSlots.some(slot => slot.isBooked);
-      const hasAvailable = dateSlot.timeSlots.some(slot => !slot.isBooked && slot.isAvailable);
-      
-      if (hasBookings && hasAvailable) return 'Partial';
-      if (hasBookings) return 'Booked';
-      return 'Available';
-    },
-
-    // Add today's date with default slots
-    addTodaySlots() {
-      const today = new Date().toISOString().split('T')[0];
-      this.addDateSlot(today);
-    },
-
-    // Add tomorrow's date with default slots
-    addTomorrowSlots() {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split('T')[0];
-      this.addDateSlot(tomorrowStr);
-    },
-
-    // Add a new date slot
-    addDateSlot(dateString) {
-      if (!this.editingServiceData) return;
-      
-      if (!this.editingServiceData.slots) {
         this.editingServiceData.slots = [];
       }
-      
-      // Check if date already exists
-      const existingSlot = this.editingServiceData.slots.find(slot => 
-        slot && slot.date === dateString
-      );
-      
-      if (existingSlot) {
-        this.setError("This date already exists in your schedule");
-        return;
-      }
-      
-      // Add new date slot with default time slots
-      this.editingServiceData.slots.push({
-        date: dateString,
-        timeSlots: [
-          { startTime: "08:00", endTime: "10:00", isAvailable: true, isBooked: false },
-          { startTime: "10:00", endTime: "12:00", isAvailable: true, isBooked: false }
-        ],
-        isActive: true,
-        slotType: 'date-specific'
-      });
-      
-      this.setSuccess(`Added ${this.formatDateDisplay(dateString)} to your schedule`);
-      console.log(`✅ Added date slot for ${dateString}`);
-    },
-
-    // Remove a date slot
-    removeDateSlot(index) {
-      if (!this.editingServiceData || !this.editingServiceData.slots) return;
-      
-      const dateSlot = this.getDateSpecificSlots()[index];
-      if (dateSlot) {
-        this.editingServiceData.slots = this.editingServiceData.slots.filter(slot => 
-          !(slot && slot.date === dateSlot.date)
-        );
-        this.setSuccess(`Removed ${this.formatDateDisplay(dateSlot.date)} from your schedule`);
-        console.log(`✅ Removed date slot for ${dateSlot.date}`);
-      }
-    },
-
-    // Edit time slots for a specific date
-    editDateSlots(dateSlot) {
-      this.editingDateSlot = { ...dateSlot };
-      this.editingTimeSlots = JSON.parse(JSON.stringify(dateSlot.timeSlots || []));
-      this.newTimeSlot = { startTime: '', endTime: '' };
-      this.showDateSlotsModal = true;
-    },
-
-    // Close date slots modal
-    closeDateSlotsModal() {
-      this.showDateSlotsModal = false;
-      this.editingDateSlot = null;
-      this.editingTimeSlots = [];
-      this.newTimeSlot = { startTime: '', endTime: '' };
-    },
-
-    // Add new time slot in modal
-    addNewTimeSlot() {
-      if (!this.newTimeSlot.startTime || !this.newTimeSlot.endTime) {
-        this.setError("Please provide both start and end times");
-        return;
-      }
-      
-      this.editingTimeSlots.push({
-        startTime: this.newTimeSlot.startTime,
-        endTime: this.newTimeSlot.endTime,
-        isAvailable: true,
-        isBooked: false
-      });
-      
-      this.newTimeSlot = { startTime: '', endTime: '' };
-    },
-
-    // Remove time slot in modal
-    removeEditingTimeSlot(index) {
-      this.editingTimeSlots.splice(index, 1);
-    },
-
-    // Apply quick time template
-    applyQuickTimeTemplate(template) {
-      this.newTimeSlot.startTime = template.start;
-      this.newTimeSlot.endTime = template.end;
-    },
-
-    // Save date slots
-    saveDateSlots() {
-      if (!this.editingDateSlot || !this.editingServiceData) return;
-      
-      // Update the date slot with new time slots
-      const slotIndex = this.editingServiceData.slots.findIndex(slot => 
-        slot && slot.date === this.editingDateSlot.date
-      );
-      
-      if (slotIndex !== -1) {
-        this.editingServiceData.slots[slotIndex].timeSlots = this.editingTimeSlots;
-      }
-      
-      this.closeDateSlotsModal();
-      this.setSuccess("Time slots updated successfully!");
-    },
-
-    // Open date range modal (placeholder for future implementation)
-    openDateRangeModal() {
-      this.setError("Date range functionality coming soon!");
     }
   }
 };
 </script>
-
 <style scoped>
-/* ✅ ALL YOUR EXISTING CSS REMAINS EXACTLY THE SAME */
-/* ✅ FIXED: Delete button positioning and visibility */
-.slot-edit-item {
+/* Add modal styles if you don't have them */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
   background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
   position: relative;
+}
+
+.status-item {
+  text-align: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  min-width: 120px;
+}
+
+.status-count {
+  font-size: 2rem;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.status-count.total {
+  color: #6b7280;
+}
+
+.status-count.active {
+  color: #22c55e;
+}
+
+.status-count.draft {
+  color: #f59e0b;
+}
+
+.status-label {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* NEW: Status Filter */
+.status-filter {
+  min-width: 150px;
+}
+
+/* NEW: Service Status Badge */
+.service-status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.service-status-badge.draft {
+  background: #fef3c7;
+  color: #d97706;
+  border: 1px solid #f59e0b;
+}
+
+.service-status-badge.active {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #22c55e;
+}
+
+/* NEW: Draft Service Styling */
+.draft-service {
+  border: 2px dashed #f59e0b;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+}
+
+.draft-service .card-content {
+  background: transparent;
+}
+
+/* NEW: Draft Actions */
+.draft-actions {
+  text-align: center;
+  padding: 12px;
+  background: #fef3c7;
+  border-radius: 8px;
+  border: 1px dashed #f59e0b;
+}
+
+.draft-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #d97706;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.add-slots-btn {
+  background: linear-gradient(120deg, #f59e0b, #d97706);
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.add-slots-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+/* NEW: Status Display in Edit Mode */
+.status-display {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.status-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
   margin-bottom: 8px;
 }
 
-.slot-time-inputs {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
+.status-badge.draft {
+  background: #fef3c7;
+  color: #d97706;
 }
 
-.time-input {
-  padding: 8px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  width: 120px;
-  font-family: monospace;
-  font-size: 0.9rem;
-}
-
-.btn-remove-slot {
-  background: #fee2e2;
-  color: #dc2626;
-  border: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 0.9rem;
-  flex-shrink: 0;
-  margin-left: auto;
-  transition: all 0.2s ease;
-}
-
-.btn-remove-slot:hover {
-  background: #fecaca;
-  transform: scale(1.1);
-}
-
-.time-slots-container {
-  margin-left: 28px;
-  width: 100%;
-}
-
-.slots-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-  width: 100%;
-}
-
-.time-separator {
-  color: #64748b;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.btn-add-slot {
-  background: #dbeafe;
-  color: #1d4ed8;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  justify-content: center;
-  margin-top: 8px;
-  transition: background 0.2s ease;
-}
-
-.btn-add-slot:hover {
-  background: #bfdbfe;
-}
-
-.availability-summary {
-  margin: 16px 0;
-  padding: 12px;
-  background: #f8fafc;
-  border-radius: 8px;
-  text-align: center;
-}
-
-.availability-badge {
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  display: inline-block;
-}
-
-.availability-badge.available {
+.status-badge.active {
   background: #dcfce7;
   color: #166534;
 }
 
-.availability-badge:not(.available) {
-  background: #fef2f2;
-  color: #991b1b;
-}
-
-.days-count {
+.status-note {
   color: #64748b;
   font-size: 0.85rem;
+  margin: 8px 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* NEW: Service Status Indicator in TimeSlots */
+.service-status-indicator {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
   margin-left: 8px;
 }
 
-.simple-weekly-availability {
-  display: none;
+.service-status-indicator.draft {
+  background: #fef3c7;
+  color: #d97706;
 }
 
-/* ========== NEW CALENDAR STYLES ========== */
-
-/* Availability Mode Toggle */
-.availability-mode-toggle {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 16px;
+.service-status-indicator.active {
+  background: #dcfce7;
+  color: #166534;
 }
 
-.mode-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 12px 16px;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  flex: 1;
-  text-align: center;
-  justify-content: center;
+/* NEW: Preview Disabled Tooltip */
+.preview-disabled-tooltip {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin-left: 4px;
 }
 
-.mode-option input[type="radio"] {
-  display: none;
+/* KEEP ALL EXISTING STYLES BELOW - NO CHANGES */
+
+/* ✅ NEW: Slide-down animation */
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.4s ease;
 }
 
-.mode-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: #64748b;
-  transition: all 0.2s ease;
+.slide-down-enter-from {
+  opacity: 0;
+  transform: translateY(-20px);
 }
 
-.mode-option input[type="radio"]:checked + .mode-label {
-  color: #3b82f6;
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
 }
 
-.mode-option input[type="radio"]:checked {
-  background: #3b82f6;
-}
-
-.mode-option:hover {
-  background: #f8fafc;
-}
-
-.mode-option input[type="radio"]:checked ~ .mode-label {
-  color: #3b82f6;
-}
-
-/* Calendar Availability Styles */
-.calendar-availability {
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 20px;
+/* ✅ NEW: TimeSlots overlay styles */
+.time-slots-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: white;
+  z-index: 1000;
+  overflow-y: auto;
+  padding: 20px;
 }
 
-.calendar-header {
-  margin-bottom: 16px;
-}
-
-.calendar-header h5 {
-  margin: 0 0 8px 0;
-  color: #1f2937;
-  font-size: 1.1rem;
-}
-
-.calendar-subtitle {
-  color: #64748b;
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.quick-date-actions {
-  display: flex;
-  gap: 12px;
+.time-slots-header {
+  background: white;
+  padding: 20px;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 1001;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
-  flex-wrap: wrap;
 }
 
-.quick-action-btn {
+.time-slots-title {
+  font-size: 1.8rem;
+  color: #0f172a;
+  margin: 10px 0 5px 0;
+  text-align: center;
+}
+
+.time-slots-subtitle {
+  color: #64748b;
+  text-align: center;
+  margin: 0;
+}
+
+.back-btn {
   background: #f1f5f9;
   color: #475569;
-  border: 1px solid #e2e8f0;
+  border: none;
   padding: 10px 16px;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.back-btn:hover {
+  background: #e2e8f0;
+}
+
+/* ✅ NEW: Manage Time Slots Button Styles */
+.manage-slots-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.manage-slots-btn {
+  background: linear-gradient(120deg, #3b82f6, #1d4ed8);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+  font-size: 0.9rem;
   transition: all 0.2s ease;
 }
 
-.quick-action-btn:hover {
-  background: #e2e8f0;
-  transform: translateY(-1px);
+.manage-slots-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
-.date-slots-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.date-slot-item {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 16px;
+/* ✅ NEW: Quick Availability Styles */
+.quick-availability {
   background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
 }
 
-.date-slot-header {
+.availability-toggle {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  gap: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  margin-bottom: 8px;
 }
 
-.date-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.availability-toggle input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
 }
 
-.date-info strong {
-  color: #1f2937;
+.toggle-label {
   font-size: 1rem;
 }
 
-.date-status {
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: 500;
+.availability-note {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0;
+  font-style: italic;
 }
 
-.date-status.available {
-  background: #dcfce7;
-  color: #166534;
+/* Remove old time slot editing styles since they're moved to TimeSlots.vue */
+.slot-edit-item,
+.slot-time-inputs,
+.time-input,
+.btn-remove-slot,
+.time-slots-container,
+.slots-list,
+.time-separator,
+.btn-add-slot,
+.day-edit-row,
+.day-header,
+.day-toggle,
+.day-label,
+.off-label {
+  /* These styles are no longer needed in ServicesSection */
 }
 
-.date-status.booked {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.date-status.partial {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.date-status.no-slots {
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.date-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.btn-date-action {
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 0.8rem;
-  transition: all 0.2s ease;
-}
-
-.btn-date-action.edit-date {
-  color: #3b82f6;
-}
-
-.btn-date-action.edit-date:hover {
-  background: #dbeafe;
-  border-color: #3b82f6;
-}
-
-.btn-date-action.remove-date {
-  color: #ef4444;
-}
-
-.btn-date-action.remove-date:hover {
-  background: #fee2e2;
-  border-color: #ef4444;
-}
-
-.date-time-slots {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.date-time-slot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: white;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-}
-
-.date-time-slot.booked {
-  background: #fef2f2;
-  border-color: #fecaca;
-}
-
-.time-range {
-  font-weight: 500;
-  color: #1f2937;
-}
-
-.time-status {
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-
-.time-status.available {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.time-status.booked {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.no-time-slots {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  background: white;
-  border-radius: 6px;
-  border: 1px dashed #d1d5db;
-  color: #6b7280;
-  font-size: 0.9rem;
-}
-
-.empty-date-slots {
-  text-align: center;
-  padding: 40px 20px;
-  color: #9ca3af;
-}
-
-.empty-date-slots i {
-  font-size: 2rem;
-  margin-bottom: 12px;
-  opacity: 0.5;
-}
-
-.empty-hint {
-  font-size: 0.8rem;
-  margin-top: 4px;
-  opacity: 0.7;
-}
-
-/* Date Slots Modal Styles */
-.date-slots-modal {
-  max-width: 500px;
-  max-height: 80vh;
-  overflow: auto;
-}
-
-.time-slot-management {
-  margin-bottom: 20px;
-}
-
-.time-slot-management h4 {
-  margin-bottom: 16px;
-  color: #1f2937;
-}
-
-.existing-time-slots {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.time-slot-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  background: #f8fafc;
-  border-radius: 6px;
-}
-
-.time-slot-item .slot-time-inputs {
-  flex: 1;
-}
-
-.btn-remove-time-slot {
-  background: #fee2e2;
-  color: #dc2626;
-  border: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  transition: all 0.2s ease;
-}
-
-.btn-remove-time-slot:hover {
-  background: #fecaca;
-}
-
-.add-time-slot {
-  border-top: 1px solid #e2e8f0;
-  padding-top: 16px;
-}
-
-.new-slot-inputs {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.btn-add-time-slot {
-  background: #3b82f6;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.9rem;
-  transition: background 0.2s ease;
-}
-
-.btn-add-time-slot:disabled {
-  background: #9ca3af;
-  cursor: not-allowed;
-}
-
-.btn-add-time-slot:hover:not(:disabled) {
-  background: #2563eb;
-}
-
-.quick-time-templates {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.quick-time-btn {
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  transition: all 0.2s ease;
-}
-
-.quick-time-btn:hover {
-  background: #e2e8f0;
-}
-
-/* Modal Actions */
-.modal-actions {
-  display: flex;
-  gap: 12px;
-  padding: 20px;
-  border-top: 1px solid #e2e8f0;
-}
-
-.btn-secondary {
-  background: #f1f5f9;
-  color: #374151;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  flex: 1;
-  transition: background 0.2s ease;
-}
-
-.btn-secondary:hover {
-  background: #e2e8f0;
-}
-
-.btn-primary {
-  background: #3b82f6;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  flex: 1;
-  transition: background 0.2s ease;
-}
-
-.btn-primary:hover {
-  background: #2563eb;
-}
-
-/* Responsive Design for Calendar */
-@media (max-width: 768px) {
-  .availability-mode-toggle {
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  .quick-date-actions {
-    flex-direction: column;
-  }
-  
-  .date-slot-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  
-  .date-actions {
-    align-self: flex-end;
-  }
-  
-  .new-slot-inputs {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .time-input {
-    width: 100%;
-  }
-}
-
-/* ALL YOUR EXISTING CSS REMAINS BELOW - NO CHANGES */
-/* ... (rest of your existing CSS styles) ... */
+/* Keep all your existing main styles below... */
 
 .services-section {
   padding: 24px;
@@ -2148,6 +1366,7 @@ export default {
   cursor: pointer;
 }
 
+/* Services Grid */
 .services-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -2254,6 +1473,168 @@ export default {
   font-size: 0.95rem;
 }
 
+/* Provider Info Styles */
+.provider-info-section {
+  margin: 16px 0;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.provider-info-section h4 {
+  margin-bottom: 12px;
+  color: #334155;
+  font-size: 1.1rem;
+}
+
+.provider-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.provider-detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+}
+
+.provider-detail i {
+  width: 16px;
+  color: #64748b;
+}
+
+.provider-info-edit {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+/* Availability Summary */
+.availability-summary {
+  margin: 16px 0;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.availability-badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.availability-badge.available {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.availability-badge:not(.available) {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.days-count {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin-left: 8px;
+}
+
+/* Enhanced Edit Mode Styles */
+.edit-mode {
+  background: #f8fafc;
+  padding: 20px;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 16px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 1rem;
+  background: white;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.edit-actions {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.save-btn {
+  background: #16a34a;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  max-width: 200px;
+}
+
+.save-btn:hover {
+  background: #15803d;
+}
+
+.cancel-btn {
+  background: #f1f5f9;
+  color: #475569;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  max-width: 200px;
+}
+
+.cancel-btn:hover {
+  background: #e2e8f0;
+}
+
 .card-actions {
   display: flex;
   padding: 0 20px 20px;
@@ -2301,6 +1682,84 @@ export default {
   background: #e0e0e0;
 }
 
+/* Error and Success Messages */
+.error-message {
+  background: #fee;
+  border: 1px solid #fcc;
+  color: #c33;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.success-message {
+  background: #efe;
+  border: 1px solid #cfc;
+  color: #363;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.close-error, .close-success {
+  background: none;
+  border: none;
+  color: inherit;
+  margin-left: auto;
+  cursor: pointer;
+}
+
+/* Debug styles */
+.debug-btn {
+  background: #6b7280;
+  color: white;
+  border: none;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-id-debug {
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.7rem;
+  margin-top: 4px;
+}
+
+.debug-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.debug-panel h4 {
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.debug-info {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-top: 8px;
+}
+
+/* Modals */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
   transition: opacity 0.3s ease;
@@ -2419,7 +1878,22 @@ export default {
   gap: 8px;
 }
 
+/* Responsive */
 @media (max-width: 768px) {
+  .status-summary {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .status-item {
+    min-width: auto;
+    padding: 12px;
+  }
+  
+  .status-count {
+    font-size: 1.5rem;
+  }
+
   .controls-bar {
     flex-direction: column;
     align-items: stretch;
@@ -2442,307 +1916,24 @@ export default {
     max-width: none;
   }
   
-  .slot-edit-item {
+  .card-actions {
     flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
   }
   
-  .slot-time-inputs {
-    justify-content: space-between;
-  }
-  
-  .btn-remove-slot {
-    margin-left: 0;
+  .action-btn {
     width: 100%;
-    margin-top: 8px;
   }
-  
-  .time-slots-container {
-    margin-left: 0;
+
+  .time-slots-overlay {
+    padding: 15px;
   }
-}
 
-/* Debug styles */
-.debug-btn {
-  background: #6b7280;
-  color: white;
-  border: none;
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.service-id-debug {
-  background: #f3f4f6;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 0.7rem;
-  margin-top: 4px;
-}
-
-.debug-panel {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 16px;
-  margin-top: 20px;
-  font-family: monospace;
-  font-size: 0.9rem;
-}
-
-.debug-panel h4 {
-  color: #64748b;
-  margin-bottom: 8px;
-}
-
-.debug-info {
-  font-size: 0.9rem;
-  color: #6b7280;
-  margin-top: 8px;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn:disabled:hover {
-  transform: none;
-  box-shadow: none;
-}
-
-.error-message {
-  background: #fee;
-  border: 1px solid #fcc;
-  color: #c33;
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.success-message {
-  background: #efe;
-  border: 1px solid #cfc;
-  color: #363;
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.close-error, .close-success {
-  background: none;
-  border: none;
-  color: inherit;
-  margin-left: auto;
-  cursor: pointer;
-}
-
-.no-availability-message {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 16px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  color: #64748b;
-  text-align: center;
-  justify-content: center;
-}
-
-.no-availability-message i {
-  color: #94a3b8;
-}
-
-.provider-info-section {
-  margin: 16px 0;
-  padding: 16px;
-  background: #f8fafc;
-  border-radius: 8px;
-}
-
-.provider-info-section h4 {
-  margin-bottom: 12px;
-  color: #334155;
-  font-size: 1.1rem;
-}
-
-.provider-details {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.provider-detail {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #475569;
-}
-
-.provider-detail i {
-  width: 16px;
-  color: #64748b;
-}
-
-.provider-info-edit {
-  background: #f8fafc;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-}
-
-.edit-mode {
-  background: #f8fafc;
-  padding: 20px;
-  border-top: 1px solid #e2e8f0;
-  margin-top: 16px;
-  animation: slideDown 0.3s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
+  .time-slots-header {
+    padding: 15px;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  .time-slots-title {
+    font-size: 1.5rem;
   }
-}
-
-.edit-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-group label {
-  display: block;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 8px;
-}
-
-.form-control {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 1rem;
-  background: white;
-}
-
-.form-control:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.availability-edit {
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.day-edit-row {
-  padding: 16px;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.day-edit-row:last-child {
-  border-bottom: none;
-}
-
-.day-edit-row.day-off {
-  background: #f8fafc;
-  opacity: 0.7;
-}
-
-.day-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.day-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  color: #334155;
-  cursor: pointer;
-}
-
-.day-toggle input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-}
-
-.day-label {
-  font-size: 1rem;
-  min-width: 100px;
-}
-
-.off-label {
-  color: #94a3b8;
-  font-size: 0.9rem;
-  font-style: italic;
-}
-
-.edit-actions {
-  margin-top: 20px;
-  text-align: center;
-}
-
-.save-btn {
-  background: #16a34a;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  width: 100%;
-  max-width: 200px;
-}
-
-.save-btn:hover {
-  background: #15803d;
-}
-
-.cancel-btn {
-  background: #f1f5f9;
-  color: #475569;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  width: 100%;
-  max-width: 200px;
-}
-
-.cancel-btn:hover {
-  background: #e2e8f0;
 }
 </style>
